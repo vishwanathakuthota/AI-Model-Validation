@@ -1,0 +1,386 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Episode 06 — Cross-Validation, Resampling, and Evidence</title>
+<meta name="description" content="AI Model Validation Episode 06: K-fold cross-validation, repeated CV, bootstrap, confidence intervals, paired model comparison, nested CV and rare failures."><meta name="author" content="Vishwanath Akuthota">
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;max-width:980px;margin:42px auto;padding:0 26px;line-height:1.7;color:#202124}h1{font-size:2.3rem}h2{margin-top:2.5rem}h3{font-family:Georgia,serif;text-align:center;font-size:1.3rem;margin:24px 0}pre{background:#f6f8fa;padding:17px;border-radius:8px;overflow:auto}blockquote{border-left:4px solid #777;padding:8px 18px;background:#fafafa}</style></head><body>
+<h1>AI Model Validation: From Mathematics to Trust</h1>
+<h2>Episode 06 — Cross-Validation, Resampling, and How Much Evidence Is Enough?</h2>
+<p>Author: Vishwanath Akuthota</p>
+<p>Founder of DrPinnacle, OpenVals and The Foundry&#x27;s</p>
+<p>A model score is not a physical constant. Change the evaluation sample and the score can change.</p>
+<blockquote>How much evidence do we need before believing a measured model-performance number?</blockquote>
+<p>This episode develops holdout evaluation, K-fold and repeated cross-validation, bootstrap resampling, confidence intervals, paired model comparison, nested cross-validation, rare-failure evidence, and the limits of resampling.</p>
+<h2>1. A Metric Is an Estimate</h2>
+<p>For loss L, finite-sample test risk is:</p>
+<h3>R̂test(f) = (1/n) Σᵢ₌₁ⁿ L(𝑦ᵢ, f(𝑥ᵢ))</h3>
+<p>Population risk is:</p>
+<h3>R(f) = E[L(Y, f(X))]</h3>
+<p>Therefore:</p>
+<h3>R̂test(f) ≠ R(f)</h3>
+<p>A finite-sample metric is evidence about population performance, not population performance itself.</p>
+<pre><code>import numpy as np
+import matplotlib.pyplot as plt
+import platform, sys
+print(&quot;Python :&quot;,sys.version.split()[0])
+print(&quot;System :&quot;,platform.system(),platform.release())
+print(&quot;Machine:&quot;,platform.machine())
+print(&quot;NumPy  :&quot;,np.__version__)
+</code></pre>
+<h2>2. Same Model, Different Test Samples</h2>
+<pre><code>rng=np.random.default_rng(42)
+def truth(x): return 2*x+1
+def model(x): return 1.9*x+1.2
+def mse(y,p): return np.mean((y-p)**2)
+
+scores=[]
+for _ in range(1000):
+    x=rng.normal(0,1,50)
+    y=truth(x)+rng.normal(0,1,50)
+    scores.append(mse(y,model(x)))
+scores=np.array(scores)
+
+print(&quot;Mean MSE:&quot;,scores.mean())
+print(&quot;SD MSE  :&quot;,scores.std(ddof=1))
+print(&quot;Range   :&quot;,scores.min(),scores.max())
+
+plt.figure(figsize=(8,5))
+plt.hist(scores,bins=40)
+plt.xlabel(&quot;Observed test MSE&quot;); plt.ylabel(&quot;Frequency&quot;)
+plt.title(&quot;Same Model, Different Evaluation Samples&quot;)
+plt.grid(alpha=.2); plt.show()
+</code></pre>
+<p>The model never changed. The score changed because the evaluation sample changed. This is sampling variability.</p>
+<h2>3. Standard Error</h2>
+<p>For an estimator T̂:</p>
+<h3>SE(T̂) = √Var(T̂)</h3>
+<p>For an independent sample mean:</p>
+<h3>SE(X̄) = σ / √n</h3>
+<p>With unknown σ:</p>
+<h3>ŜE(X̄) = s / √n</h3>
+<p>The inverse square-root relationship means that substantially reducing uncertainty can require substantially more data.</p>
+<h2>4. Sample Size and Metric Stability</h2>
+<pre><code>rng=np.random.default_rng(7)
+sizes=[20,50,100,500,2000]; spread=[]
+for n in sizes:
+    est=[]
+    for _ in range(1000):
+        x=rng.normal(0,1,n)
+        y=truth(x)+rng.normal(0,1,n)
+        est.append(mse(y,model(x)))
+    spread.append(np.std(est,ddof=1))
+    print(n,spread[-1])
+
+plt.figure(figsize=(8,5))
+plt.plot(sizes,spread,marker=&quot;o&quot;)
+plt.xlabel(&quot;Evaluation sample size&quot;)
+plt.ylabel(&quot;SD of observed MSE&quot;)
+plt.title(&quot;Sample Size and Stability&quot;)
+plt.grid(alpha=.25); plt.show()
+</code></pre>
+<p>More data generally reduces sampling variability. It does not repair biased sampling, leakage, distribution shift, or poor measurement design.</p>
+<h2>5. Holdout Validation</h2>
+<p>A simple evaluation separates training and testing data:</p>
+<h3>D = Dtrain ∪ Dtest</h3>
+<h3>Dtrain ∩ Dtest = ∅</h3>
+<p>The test set should not influence model fitting. One holdout is efficient, but its result can depend strongly on the particular split.</p>
+<h2>6. K-Fold Cross-Validation</h2>
+<p>K-fold CV divides data into K non-overlapping folds. Each fold is used once for validation while the remaining folds are used for training.</p>
+<h3>CVₖ = (1/K) Σₖ₌₁ᴷ Lₖ</h3>
+<p>Every observation participates in validation once and training K−1 times.</p>
+<pre><code>rng=np.random.default_rng(123)
+n=180
+x=rng.uniform(-3,3,n)
+y=.5*x**3-x+rng.normal(0,.8,n)
+
+def poly(xtr,ytr,d): return np.poly1d(np.polyfit(xtr,ytr,d))
+def folds(n,k,seed):
+    r=np.random.default_rng(seed)
+    return np.array_split(r.permutation(n),k)
+
+def cv(x,y,d,k=5,seed=1):
+    fs=folds(len(x),k,seed); losses=[]
+    for i in range(k):
+        val=fs[i]
+        train=np.concatenate([fs[j] for j in range(k) if j!=i])
+        f=poly(x[train],y[train],d)
+        losses.append(mse(y[val],f(x[val])))
+    return np.array(losses)
+
+s=cv(x,y,3,5,42)
+print(&quot;Fold MSE:&quot;,np.round(s,4))
+print(&quot;Mean:&quot;,s.mean())
+print(&quot;Fold SD:&quot;,s.std(ddof=1))
+</code></pre>
+<h2>7. What Does K Control?</h2>
+<p>The training fraction in each K-fold iteration is approximately:</p>
+<h3>(K − 1) / K</h3>
+<p>K=5 uses about 80% for training per fold; K=10 uses about 90%.</p>
+<p>There is no universally optimal K. The choice depends on data size, computational cost, dependence structure, and validation objective.</p>
+<pre><code>for k in [3,5,10,20]:
+    s=cv(x,y,3,k,42)
+    print(f&quot;K={k:&gt;2} mean={s.mean():.4f} fold-SD={s.std(ddof=1):.4f}&quot;)
+</code></pre>
+<h2>8. Fold SD Is Not Automatically a Confidence Interval</h2>
+<p>A tempting quantity is:</p>
+<h3>sfold / √K</h3>
+<p>But K-fold validation losses are not generally independent because their training sets overlap.</p>
+<p>Naively treating folds as independent experimental replicates can therefore produce misleading uncertainty estimates.</p>
+<h2>9. Repeated K-Fold Cross-Validation</h2>
+<p>Repeat K-fold CV using different partitions. If repetition r produces Cᵣ:</p>
+<h3>C̄ = (1/R) Σᵣ₌₁ᴿ Cᵣ</h3>
+<p>The resulting distribution exposes sensitivity to the partitioning procedure.</p>
+<pre><code>rep=[]
+for seed in range(100):
+    rep.append(cv(x,y,3,5,seed).mean())
+rep=np.array(rep)
+print(&quot;Mean:&quot;,rep.mean())
+print(&quot;SD:&quot;,rep.std(ddof=1))
+print(&quot;2.5%, 97.5%:&quot;,np.quantile(rep,[.025,.975]))
+
+plt.figure(figsize=(8,5))
+plt.hist(rep,bins=25)
+plt.xlabel(&quot;Mean 5-fold CV MSE&quot;); plt.ylabel(&quot;Frequency&quot;)
+plt.title(&quot;Partition Sensitivity&quot;)
+plt.grid(alpha=.2); plt.show()
+</code></pre>
+<p>Repeated CV exposes split sensitivity. It does not create new independent populations or guarantee deployment performance.</p>
+<h2>10. Leave-One-Out Cross-Validation</h2>
+<p>LOOCV is the limiting K-fold case:</p>
+<h3>K = n</h3>
+<p>Each model is trained on n−1 observations and tested on the remaining observation.</p>
+<p>LOOCV uses almost all data for each fit, but can be computationally expensive and is not automatically superior to ordinary K-fold CV.</p>
+<h2>11. Bootstrap Resampling</h2>
+<p>A bootstrap sample contains n draws with replacement from the observed n cases.</p>
+<p>For replicate b:</p>
+<h3>θ̂*(b) = T(D*(b))</h3>
+<p>Repeating this B times approximates the sampling behaviour of the statistic conditional on the observed data.</p>
+<h2>12. Why 63.2%?</h2>
+<p>For one observation:</p>
+<h3>P(not selected) = (1 − 1/n)ⁿ</h3>
+<p>As n grows:</p>
+<h3>(1 − 1/n)ⁿ → e⁻¹ ≈ 0.368</h3>
+<p>So the expected fraction represented at least once approaches:</p>
+<h3>1 − e⁻¹ ≈ 0.632</h3>
+<pre><code>rng=np.random.default_rng(99)
+for n in [20,100,1000,10000]:
+    u=[]
+    for _ in range(1000):
+        sample=rng.integers(0,n,n)
+        u.append(len(np.unique(sample))/n)
+    print(f&quot;n={n:&gt;5} mean unique fraction={np.mean(u):.4f}&quot;)
+</code></pre>
+<h2>13. Bootstrap Uncertainty for Test MSE</h2>
+<pre><code>rng=np.random.default_rng(2026)
+xt=rng.normal(0,1,120)
+yt=truth(xt)+rng.normal(0,1,120)
+loss=(yt-model(xt))**2
+observed=loss.mean()
+
+B=5000
+boot=np.empty(B)
+for b in range(B):
+    boot[b]=rng.choice(loss,size=len(loss),replace=True).mean()
+
+lo,hi=np.quantile(boot,[.025,.975])
+print(f&quot;Observed MSE={observed:.4f}&quot;)
+print(f&quot;Bootstrap 95% percentile interval=[{lo:.4f},{hi:.4f}]&quot;)
+
+plt.figure(figsize=(8,5))
+plt.hist(boot,bins=50)
+plt.axvline(observed,linestyle=&quot;--&quot;,label=&quot;Observed&quot;)
+plt.axvline(lo,linestyle=&quot;:&quot;); plt.axvline(hi,linestyle=&quot;:&quot;)
+plt.xlabel(&quot;Bootstrap MSE&quot;); plt.ylabel(&quot;Frequency&quot;)
+plt.title(&quot;Bootstrap Distribution&quot;)
+plt.legend(); plt.grid(alpha=.2); plt.show()
+</code></pre>
+<p>The percentile interval is conditional on the observed sample and bootstrap assumptions. It is not a guarantee of future deployment performance.</p>
+<h2>14. Confidence Interval Interpretation</h2>
+<p>A frequentist 95% confidence interval describes a repeated procedure: under its assumptions, approximately 95% of intervals constructed over repeated samples would contain the target parameter.</p>
+<p>It does not generally mean there is a 95% probability that an already-computed fixed interval contains a fixed parameter.</p>
+<h2>15. Paired Model Comparison</h2>
+<p>If models A and B are evaluated on the same cases, define:</p>
+<h3>dᵢ = Lᵢ(A) − Lᵢ(B)</h3>
+<p>and:</p>
+<h3>d̄ = (1/n) Σᵢ₌₁ⁿ dᵢ</h3>
+<p>Paired differences preserve the fact that both models faced the same observations.</p>
+<pre><code>rng=np.random.default_rng(17)
+n=150
+x2=rng.normal(0,1,n)
+y2=truth(x2)+rng.normal(0,1,n)
+pa=1.8*x2+1.1
+pb=2.05*x2+.9
+la=(y2-pa)**2
+lb=(y2-pb)**2
+d=la-lb
+print(&quot;A MSE:&quot;,la.mean())
+print(&quot;B MSE:&quot;,lb.mean())
+print(&quot;Mean paired difference A-B:&quot;,d.mean())
+</code></pre>
+<h2>16. Uncertainty of a Paired Difference</h2>
+<p>For independent evaluation cases:</p>
+<h3>ŜE(d̄) = sd / √n</h3>
+<p>An approximate large-sample interval is:</p>
+<h3>d̄ ± z₁₋α/₂ (sd / √n)</h3>
+<p>For a nominal 95% normal approximation, z ≈ 1.96.</p>
+<p>Clustered, repeated, grouped, or time-dependent observations require methods that preserve those dependencies.</p>
+<pre><code>mean_d=d.mean()
+se=d.std(ddof=1)/np.sqrt(n)
+print(&quot;Mean difference:&quot;,mean_d)
+print(&quot;Approx. 95% interval:&quot;,(mean_d-1.96*se,mean_d+1.96*se))
+</code></pre>
+<h2>17. Paired Bootstrap Model Comparison</h2>
+<pre><code>rng=np.random.default_rng(18)
+B=5000
+bd=np.empty(B)
+for b in range(B):
+    idx=rng.integers(0,n,n)
+    bd[b]=np.mean(la[idx]-lb[idx])
+lo,hi=np.quantile(bd,[.025,.975])
+print(&quot;Paired bootstrap interval:&quot;,(lo,hi))
+
+plt.figure(figsize=(8,5))
+plt.hist(bd,bins=50)
+plt.axvline(0,linestyle=&quot;--&quot;,label=&quot;No difference&quot;)
+plt.xlabel(&quot;Mean loss difference A-B&quot;); plt.ylabel(&quot;Frequency&quot;)
+plt.title(&quot;Uncertainty in Model Comparison&quot;)
+plt.legend(); plt.grid(alpha=.2); plt.show()
+</code></pre>
+<h2>18. Statistical Evidence ≠ Practical Importance</h2>
+<p>A tiny improvement can become statistically detectable with a sufficiently large sample.</p>
+<h3>Statistical Evidence ≠ Practical Significance</h3>
+<p>Model validation should therefore report effect magnitude, uncertainty, and decision consequences—not merely whether a statistical threshold was crossed.</p>
+<h2>19. Multiple Model Selection and the Winner&#x27;s Curse</h2>
+<p>If many candidates are tested and the one with the minimum observed validation loss is selected:</p>
+<h3>minⱼ R̂validation(fⱼ)</h3>
+<p>random variation helps determine the winner.</p>
+<p>The selected validation score can therefore be optimistic.</p>
+<pre><code>rng=np.random.default_rng(1234)
+true_loss=1.0
+for count in [1,5,20,100,500]:
+    winners=[]
+    for _ in range(5000):
+        observed=true_loss+rng.normal(0,.15,count)
+        winners.append(observed.min())
+    print(f&quot;Candidates={count:&gt;3} mean best observed loss={np.mean(winners):.4f}&quot;)
+</code></pre>
+<p>All candidates in this simulation have identical true expected loss. Trying more candidates still produces an increasingly impressive apparent winner.</p>
+<h2>20. Nested Cross-Validation</h2>
+<p>Nested CV separates model selection from evaluation:</p>
+<h3>Outer Evaluation [ Inner Model Selection ]</h3>
+<p>The inner loop chooses hyperparameters or model class.</p>
+<p>The outer loop evaluates the entire selection procedure on data untouched by that inner selection.</p>
+<pre><code>rng=np.random.default_rng(314)
+xn=rng.uniform(-3,3,180)
+yn=.5*xn**3-xn+rng.normal(0,.8,180)
+
+outer=folds(len(xn),5,10)
+degrees=[1,2,3,4,5,8]
+outer_loss=[]; chosen=[]
+
+for i in range(5):
+    test=outer[i]
+    train=np.concatenate([outer[j] for j in range(5) if j!=i])
+    inner_scores=[]
+    for degree in degrees:
+        inner_scores.append(cv(xn[train],yn[train],degree,4,100+i).mean())
+    best=degrees[int(np.argmin(inner_scores))]
+    chosen.append(best)
+    f=poly(xn[train],yn[train],best)
+    outer_loss.append(mse(yn[test],f(xn[test])))
+
+print(&quot;Chosen degrees:&quot;,chosen)
+print(&quot;Outer losses:&quot;,np.round(outer_loss,4))
+print(&quot;Nested CV estimate:&quot;,np.mean(outer_loss))
+</code></pre>
+<h2>21. Splitting Must Match the Deployment Question</h2>
+<p>Random K-fold CV can be invalid for:</p>
+<p>- time series</p>
+<p>- repeated measurements</p>
+<p>- multiple records from the same customer</p>
+<p>- multiple images from one patient</p>
+<p>- documents from one source</p>
+<p>- geographic clusters</p>
+<p>If deployment means predicting for unseen groups:</p>
+<h3>Gtrain ∩ Gtest = ∅</h3>
+<p>For forecasting, chronology should be respected:</p>
+<h3>ttrain &lt; tvalidation &lt; ttest</h3>
+<p>The evaluation protocol should imitate the information constraints of real deployment.</p>
+<h2>22. Resampling Cannot Repair Bad Data</h2>
+<p>Cross-validation and bootstrap reuse the observed dataset.</p>
+<h3>Resampling More ≠ Collecting Better Evidence</h3>
+<p>If the original data are unrepresentative, contaminated, biased, or missing critical populations, computational resampling does not manufacture the missing information.</p>
+<h2>23. How Much Evidence Is Enough?</h2>
+<p>There is no universal number of folds or samples that makes a model “validated.”</p>
+<p>Evidence requirements depend on expected effect size, acceptable uncertainty, rare-failure prevalence, consequences of errors, population heterogeneity, subgroup requirements, deployment environment, and safety or regulatory requirements.</p>
+<h2>24. Rare Failures</h2>
+<p>If a harmful failure has probability p, the probability of seeing zero failures in n independent trials is:</p>
+<h3>P(X = 0) = (1 − p)ⁿ</h3>
+<p>No observed failures therefore do not prove zero failure probability.</p>
+<pre><code>rates=[.10,.01,.001,.0001]
+sizes=[100,1000,10000]
+for p in rates:
+    print(f&quot;\nTrue failure probability={p:.4%}&quot;)
+    for n in sizes:
+        print(f&quot;n={n:&gt;5}: P(zero observed)={(1-p)**n:.6f}&quot;)
+</code></pre>
+<h2>25. Rule of Three</h2>
+<p>When zero failures are observed in n independent Bernoulli trials, a useful approximate 95% upper bound for a small failure probability is:</p>
+<h3>pupper ≈ 3/n</h3>
+<p>For 1,000 observations with zero failures, this approximation gives 0.3%, not 0%.</p>
+<pre><code>for n in [100,1000,10000,100000]:
+    print(f&quot;n={n:&gt;6} -&gt; approximate 95% upper failure rate={3/n:.4%}&quot;)
+</code></pre>
+<h2>26. Evidence Is Claim-Dependent</h2>
+<p>“How many samples do I need?” is incomplete.</p>
+<p>A stronger scientific question is:</p>
+<blockquote>How much data do I need to estimate the quantity I care about with uncertainty small enough for the intended decision?</blockquote>
+<p>The validation claim should determine the evidence requirement.</p>
+<h2>27. Internal vs External Validation</h2>
+<p>Cross-validation partitions the same underlying dataset.</p>
+<p>External validation evaluates independently collected data relevant to intended deployment.</p>
+<h3>Internal Resampling ≠ External Validation</h3>
+<p>Both are valuable, but they answer different questions.</p>
+<h2>28. Validation Has a Time Dimension</h2>
+<p>A model validated at one time can later encounter population drift, concept drift, new failure modes, adversarial behaviour, altered data quality, or changed dependencies.</p>
+<h3>Validation(t₀) ⇏ Validation(t₁)</h3>
+<p>Pre-deployment validation therefore cannot replace post-deployment monitoring.</p>
+<h2>29. OpenVals Perspective</h2>
+<p>For every important metric, an AI validation platform should preserve:</p>
+<p>- evaluation dataset and sample size</p>
+<p>- split strategy</p>
+<p>- fold-level results</p>
+<p>- repeated-run variability</p>
+<p>- uncertainty intervals</p>
+<p>- paired model differences</p>
+<p>- model-selection procedure</p>
+<p>- leakage controls</p>
+<p>- group and temporal constraints</p>
+<p>- rare-event coverage</p>
+<p>- external-validation status</p>
+<p>- deployment-monitoring status</p>
+<p>The goal is not more numbers. It is the strength of evidence behind each claim.</p>
+<h2>30. Scientific Evidence Chain</h2>
+<h3>Metric → Sampling Variability → Resampling → Uncertainty → Comparison → Evidence</h3>
+<p>A performance number without uncertainty can create false precision.</p>
+<p>A model comparison without paired evidence can create false confidence.</p>
+<p>A validation procedure that ignores selection can create optimistic conclusions.</p>
+<h2>31. Mathematical Summary</h2>
+<h3>R̂test(f) = (1/n) Σᵢ₌₁ⁿ L(𝑦ᵢ, f(𝑥ᵢ))</h3>
+<h3>R(f) = E[L(Y, f(X))]</h3>
+<h3>CVₖ = (1/K) Σₖ₌₁ᴷ Lₖ</h3>
+<h3>(1 − 1/n)ⁿ → e⁻¹ ≈ 0.368</h3>
+<h3>1 − e⁻¹ ≈ 0.632</h3>
+<h3>dᵢ = Lᵢ(A) − Lᵢ(B)</h3>
+<h3>ŜE(d̄) = sd / √n</h3>
+<h3>P(X = 0) = (1 − p)ⁿ</h3>
+<h3>pupper ≈ 3/n</h3>
+<h2>32. Central Conclusion</h2>
+<h3>Performance Number ≠ Strength of Evidence</h3>
+<blockquote>A model metric tells us what happened in an evaluation. Statistical validation tells us how much confidence that evaluation deserves.</blockquote>
+<p>Cross-validation does not prove generalization.</p>
+<p>Bootstrap intervals do not guarantee future performance.</p>
+<p>More folds do not repair poor sampling.</p>
+<p>Zero observed failures do not prove zero risk.</p>
+<p>The scientific objective is to quantify what we know, how uncertain we are, and whether the evidence is strong enough for the decision being made.</p>
+<h3>Next Episode</h3>
+<p>Episode 07 — Classification Metrics: Why Accuracy Can Be Completely Misleading</p>
+<p>The next episode will build the confusion matrix from first principles and derive accuracy, precision, recall, specificity, F1 score, false-positive rate, false-negative rate, prevalence, balanced accuracy, and threshold-dependent behaviour.</p>
+</body></html>
