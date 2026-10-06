@@ -1,0 +1,543 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Episode 08 — Thresholds, ROC, Precision–Recall and Decision Trade-Offs</title>
+<meta name="description" content="AI Model Validation Episode 08: thresholds, ROC geometry, AUC, precision-recall, likelihood ratios, calibration, expected cost, Bayes decision rules and threshold uncertainty.">
+<meta name="author" content="Vishwanath Akuthota">
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;max-width:980px;margin:42px auto;padding:0 26px;line-height:1.7;color:#202124}h1{font-size:2.3rem;line-height:1.2}h2{margin-top:2.5rem}h3{font-family:Georgia,serif;text-align:center;font-size:1.3rem;margin:24px 0}pre{background:#f6f8fa;padding:17px;border-radius:8px;overflow:auto;line-height:1.45}blockquote{border-left:4px solid #777;padding:8px 18px;background:#fafafa}</style></head><body>
+<h1>AI Model Validation: From Mathematics to Trust</h1>
+<h2>Episode 08 — Thresholds, ROC, Precision–Recall, and the Mathematics of Decision Trade-Offs</h2>
+<p>Author: Vishwanath Akuthota</p>
+<p>Founder of DrPinnacle, OpenVals and The Foundry&#x27;s</p>
+<p>Episode 07 showed that accuracy alone can conceal catastrophic classification behaviour.</p>
+<p>Episode 08 asks a deeper question:</p>
+<blockquote>Once a model produces a score, where should we place the decision threshold?</blockquote>
+<p>There is no universally best threshold. The answer depends on prevalence, error costs, operating constraints, probability calibration, and the decision we are trying to make.</p>
+<p>This episode develops threshold mathematics, ROC geometry, AUC, precision–recall curves, likelihood ratios, Bayes decision rules, expected cost, Youden&#x27;s J, constrained threshold selection, calibration, and operating-point validation.</p>
+<h2>1. A Score Is Not Yet a Decision</h2>
+<p>Many classifiers produce a continuous score rather than a final class.</p>
+<h3>s(x) ∈ ℝ</h3>
+<p>or, for a probability-producing system:</p>
+<h3>p̂(x) ∈ [0, 1]</h3>
+<p>A threshold τ transforms the score into a decision:</p>
+<h3>Ŷτ = 1[s(x) ≥ τ]</h3>
+<p>The model score and the deployment decision are therefore different objects.</p>
+<pre><code>import numpy as np
+import matplotlib.pyplot as plt
+import platform, sys
+
+print(&quot;Python :&quot;,sys.version.split()[0])
+print(&quot;System :&quot;,platform.system(),platform.release())
+print(&quot;Machine:&quot;,platform.machine())
+print(&quot;NumPy  :&quot;,np.__version__)
+</code></pre>
+<h2>2. Thresholds Create Confusion Matrices</h2>
+<p>For a fixed dataset and score-producing model:</p>
+<h3>CM = CM(τ)</h3>
+<p>Therefore:</p>
+<h3>TP = TP(τ)</h3>
+<h3>FN = FN(τ)</h3>
+<h3>FP = FP(τ)</h3>
+<h3>TN = TN(τ)</h3>
+<p>Every threshold-dependent classification metric inherits this dependence.</p>
+<h2>3. Build a Controlled Classification Experiment</h2>
+<p>We simulate positive and negative score distributions. The experiment is deliberately transparent so that the effect of threshold movement can be observed directly.</p>
+<pre><code>rng=np.random.default_rng(808)
+
+n_pos=500
+n_neg=2500
+
+positive_scores=np.clip(rng.normal(.72,.17,n_pos),0,1)
+negative_scores=np.clip(rng.normal(.28,.18,n_neg),0,1)
+
+scores=np.concatenate([positive_scores,negative_scores])
+y=np.concatenate([np.ones(n_pos,dtype=int),np.zeros(n_neg,dtype=int)])
+
+print(&quot;N:&quot;,len(y))
+print(&quot;Positive prevalence:&quot;,y.mean())
+
+plt.figure(figsize=(8,5))
+plt.hist(negative_scores,bins=35,alpha=.55,label=&quot;Actual negative&quot;)
+plt.hist(positive_scores,bins=35,alpha=.55,label=&quot;Actual positive&quot;)
+plt.xlabel(&quot;Model score&quot;)
+plt.ylabel(&quot;Frequency&quot;)
+plt.title(&quot;Overlapping Score Distributions&quot;)
+plt.legend()
+plt.grid(alpha=.2)
+plt.show()
+</code></pre>
+<p>The overlap is where classification errors become unavoidable. Moving the threshold changes which type of error we accept.</p>
+<h2>4. Confusion Matrix as a Function of τ</h2>
+<pre><code>def confusion(y,s,t):
+    pred=(s&gt;=t).astype(int)
+    tp=np.sum((y==1)&amp;(pred==1))
+    fn=np.sum((y==1)&amp;(pred==0))
+    fp=np.sum((y==0)&amp;(pred==1))
+    tn=np.sum((y==0)&amp;(pred==0))
+    return tp,fn,fp,tn
+
+def metric_set(tp,fn,fp,tn):
+    precision=tp/(tp+fp) if tp+fp else np.nan
+    recall=tp/(tp+fn) if tp+fn else np.nan
+    specificity=tn/(tn+fp) if tn+fp else np.nan
+    fpr=fp/(fp+tn) if fp+tn else np.nan
+    accuracy=(tp+tn)/(tp+fn+fp+tn)
+    f1=2*precision*recall/(precision+recall) if np.isfinite(precision) and precision+recall else np.nan
+    return precision,recall,specificity,fpr,accuracy,f1
+
+for t in [.20,.35,.50,.65,.80]:
+    cm=confusion(y,scores,t)
+    vals=metric_set(*cm)
+    print(f&quot;τ={t:.2f}  TP={cm[0]:3d} FN={cm[1]:3d} FP={cm[2]:4d} TN={cm[3]:4d} &quot;
+          f&quot;P={vals[0]:.3f} R={vals[1]:.3f}&quot;)
+</code></pre>
+<h2>5. Lower Thresholds and Higher Thresholds</h2>
+<p>A lower threshold generally predicts more positives:</p>
+<h3>τ ↓ ⇒ TP ↑ and FP ↑</h3>
+<p>A higher threshold generally predicts fewer positives:</p>
+<h3>τ ↑ ⇒ FP ↓ and TP ↓</h3>
+<p>Equivalently, false negatives usually rise as the threshold rises.</p>
+<p>This is not a defect of the metric. It is the geometry of overlapping score distributions.</p>
+<h2>6. Sensitivity and Specificity Across Thresholds</h2>
+<h3>Sensitivity(τ) = TP(τ) / [TP(τ) + FN(τ)]</h3>
+<h3>Specificity(τ) = TN(τ) / [TN(τ) + FP(τ)]</h3>
+<pre><code>thresholds=np.linspace(0,1,301)
+sensitivity=[]
+specificity=[]
+precision=[]
+fpr=[]
+f1=[]
+
+for t in thresholds:
+    tp,fn,fp,tn=confusion(y,scores,t)
+    p,r,sp,fr,a,f=metric_set(tp,fn,fp,tn)
+    precision.append(p); sensitivity.append(r); specificity.append(sp)
+    fpr.append(fr); f1.append(f)
+
+plt.figure(figsize=(8,5))
+plt.plot(thresholds,sensitivity,label=&quot;Sensitivity / Recall&quot;)
+plt.plot(thresholds,specificity,label=&quot;Specificity&quot;)
+plt.xlabel(&quot;Threshold τ&quot;)
+plt.ylabel(&quot;Metric&quot;)
+plt.title(&quot;Sensitivity–Specificity Trade-Off&quot;)
+plt.legend()
+plt.grid(alpha=.25)
+plt.show()
+</code></pre>
+<p>A threshold cannot be evaluated independently of the trade-off it creates.</p>
+<h2>7. ROC Geometry</h2>
+<p>ROC space uses:</p>
+<h3>x-axis = FPR = FP / (FP + TN)</h3>
+<h3>y-axis = TPR = TP / (TP + FN)</h3>
+<p>Each threshold corresponds to one point:</p>
+<h3>ROC(τ) = [FPR(τ), TPR(τ)]</h3>
+<p>Sweeping τ traces the ROC curve.</p>
+<pre><code>order=np.argsort(fpr)
+roc_fpr=np.array(fpr)[order]
+roc_tpr=np.array(sensitivity)[order]
+
+plt.figure(figsize=(7,6))
+plt.plot(roc_fpr,roc_tpr,label=&quot;ROC&quot;)
+plt.plot([0,1],[0,1],linestyle=&quot;--&quot;,label=&quot;Random-ranking reference&quot;)
+plt.xlabel(&quot;False Positive Rate&quot;)
+plt.ylabel(&quot;True Positive Rate&quot;)
+plt.title(&quot;ROC Geometry&quot;)
+plt.legend()
+plt.grid(alpha=.25)
+plt.show()
+</code></pre>
+<h2>8. Meaning of the Diagonal</h2>
+<p>A ranking system with no discrimination has, in expectation:</p>
+<h3>TPR ≈ FPR</h3>
+<p>This produces the diagonal reference line.</p>
+<p>A useful ranking system tends to push the ROC curve toward the upper-left region:</p>
+<h3>FPR → 0</h3>
+<h3>TPR → 1</h3>
+<h2>9. ROC AUC</h2>
+<p>Area Under the ROC Curve is:</p>
+<h3>AUC = ∫₀¹ TPR(FPR) d(FPR)</h3>
+<p>A powerful probabilistic interpretation is:</p>
+<h3>AUC = P(S⁺ &gt; S⁻) + ½P(S⁺ = S⁻)</h3>
+<p>where S⁺ is a randomly selected positive score and S⁻ a randomly selected negative score.</p>
+<pre><code>pair_greater=(positive_scores[:,None]&gt;negative_scores[None,:]).mean()
+pair_equal=(positive_scores[:,None]==negative_scores[None,:]).mean()
+auc_pair=pair_greater+.5*pair_equal
+
+auc_trap=np.trapz(roc_tpr,roc_fpr)
+
+print(&quot;Pairwise AUC   :&quot;,auc_pair)
+print(&quot;Integrated AUC :&quot;,auc_trap)
+</code></pre>
+<p>AUC measures ranking discrimination across thresholds.</p>
+<p>It does not tell us:</p>
+<p>- which threshold to deploy</p>
+<p>- whether predicted probabilities are calibrated</p>
+<p>- what false positives cost</p>
+<p>- what false negatives cost</p>
+<p>- whether performance is acceptable for a specific application</p>
+<h2>10. AUC Is Threshold-Free, Decisions Are Not</h2>
+<h3>Ranking Quality ≠ Decision Quality</h3>
+<p>Two systems can have similar AUC yet produce materially different outcomes at the operating region that matters.</p>
+<p>Validation must therefore inspect the intended operating point, not only the global area.</p>
+<h2>11. Youden&#x27;s J Statistic</h2>
+<p>One classical threshold criterion is:</p>
+<h3>J(τ) = Sensitivity(τ) + Specificity(τ) − 1</h3>
+<p>Because:</p>
+<h3>Specificity = 1 − FPR</h3>
+<p>we can also write:</p>
+<h3>J(τ) = TPR(τ) − FPR(τ)</h3>
+<p>The threshold maximizing J maximizes vertical separation from the ROC diagonal.</p>
+<pre><code>J=np.array(sensitivity)+np.array(specificity)-1
+j_idx=np.nanargmax(J)
+j_threshold=thresholds[j_idx]
+
+print(&quot;Threshold maximizing Youden J:&quot;,j_threshold)
+print(&quot;J:&quot;,J[j_idx])
+print(&quot;Sensitivity:&quot;,sensitivity[j_idx])
+print(&quot;Specificity:&quot;,specificity[j_idx])
+</code></pre>
+<p>Youden&#x27;s J treats sensitivity and specificity symmetrically.</p>
+<p>That may be useful in some settings, but it does not encode unequal error costs or prevalence-dependent consequences.</p>
+<h3>Maximum J ≠ Universal Best Threshold</h3>
+<h2>12. Precision–Recall Geometry</h2>
+<p>Precision:</p>
+<h3>Precision = TP / (TP + FP)</h3>
+<p>Recall:</p>
+<h3>Recall = TP / (TP + FN)</h3>
+<p>A precision–recall curve plots precision against recall as τ varies.</p>
+<pre><code>P=np.array(precision)
+R=np.array(sensitivity)
+valid=np.isfinite(P)
+
+plt.figure(figsize=(7,6))
+plt.plot(R[valid],P[valid],label=&quot;PR curve&quot;)
+plt.axhline(y.mean(),linestyle=&quot;--&quot;,label=&quot;Prevalence reference&quot;)
+plt.xlabel(&quot;Recall&quot;)
+plt.ylabel(&quot;Precision&quot;)
+plt.title(&quot;Precision–Recall Geometry&quot;)
+plt.legend()
+plt.grid(alpha=.25)
+plt.show()
+</code></pre>
+<h2>13. Why Prevalence Appears in Precision</h2>
+<p>Let:</p>
+<h3>π = P(Y = 1)</h3>
+<p>Then, by Bayes&#x27; rule:</p>
+<h3>Precision =</h3>
+<h3>[TPR × π] / [TPR × π + FPR × (1 − π)]</h3>
+<p>Precision therefore changes when prevalence changes even if TPR and FPR remain fixed.</p>
+<h2>14. Experiment — Same Classifier, Different Populations</h2>
+<pre><code>tpr_fixed=.90
+fpr_fixed=.05
+
+for prev in [.50,.20,.05,.01,.001]:
+    ppv=(tpr_fixed*prev)/(tpr_fixed*prev+fpr_fixed*(1-prev))
+    print(f&quot;Prevalence={prev:7.3%} -&gt; Precision={ppv:7.3%}&quot;)
+</code></pre>
+<p>This is why a model validated in one population may produce very different positive-prediction reliability in another population.</p>
+<h3>Same TPR + Same FPR ≠ Same Precision when prevalence changes</h3>
+<h2>15. ROC vs Precision–Recall</h2>
+<p>ROC asks how well positives are ranked relative to negatives across thresholds.</p>
+<p>Precision–recall emphasizes the quality and coverage of positive predictions.</p>
+<p>When positives are rare, a small FPR can still create many false positives because the negative population is large.</p>
+<p>Neither curve is universally superior. The validation question determines which view is more informative.</p>
+<h2>16. F1 as a Threshold Objective</h2>
+<h3>F1(τ) = 2 × Precision(τ) × Recall(τ) /</h3>
+<h3>[Precision(τ) + Recall(τ)]</h3>
+<p>A threshold can be selected to maximize observed F1.</p>
+<pre><code>f1_arr=np.array(f1)
+f1_idx=np.nanargmax(f1_arr)
+print(&quot;Observed F1-max threshold:&quot;,thresholds[f1_idx])
+print(&quot;Observed max F1:&quot;,f1_arr[f1_idx])
+</code></pre>
+<p>But maximizing F1 implicitly treats precision and recall through the harmonic mean and ignores TN.</p>
+<h3>Maximum F1 ≠ Universal Best Threshold</h3>
+<h2>17. Fβ Score</h2>
+<p>If recall should receive more or less weight, the Fβ family is:</p>
+<h3>Fβ = (1 + β²)PR / (β²P + R)</h3>
+<p>For:</p>
+<h3>β &gt; 1</h3>
+<p>recall receives greater weight.</p>
+<p>For:</p>
+<h3>β &lt; 1</h3>
+<p>precision receives greater weight.</p>
+<pre><code>def fbeta(p,r,beta):
+    if not np.isfinite(p) or beta*beta*p+r==0: return np.nan
+    return (1+beta**2)*p*r/(beta**2*p+r)
+
+for beta in [.5,1,2]:
+    vals=np.array([fbeta(p,r,beta) for p,r in zip(P,R)])
+    idx=np.nanargmax(vals)
+    print(f&quot;beta={beta}: best threshold={thresholds[idx]:.3f}, Fbeta={vals[idx]:.3f}&quot;)
+</code></pre>
+<p>Metric weighting can express priorities, but the choice of β itself requires domain justification.</p>
+<h2>18. Expected Cost</h2>
+<p>Suppose:</p>
+<p>- false positive cost = CFP</p>
+<p>- false negative cost = CFN</p>
+<p>For an evaluation sample:</p>
+<h3>Total Cost(τ) = CFP × FP(τ) + CFN × FN(τ)</h3>
+<p>A normalized expected cost can be expressed as:</p>
+<h3>Risk(τ) = CFP × FPR(τ) × P(Y=0)</h3>
+<h3>+ CFN × FNR(τ) × P(Y=1)</h3>
+<pre><code>cost_cases=[
+    (&quot;Equal&quot;,1,1),
+    (&quot;FN severe&quot;,1,20),
+    (&quot;FP severe&quot;,20,1)
+]
+
+for label,c_fp,c_fn in cost_cases:
+    costs=[]
+    for t in thresholds:
+        tp,fn,fp,tn=confusion(y,scores,t)
+        costs.append(c_fp*fp+c_fn*fn)
+    idx=np.argmin(costs)
+    print(f&quot;{label:&lt;10}: threshold={thresholds[idx]:.3f}, cost={costs[idx]}&quot;)
+</code></pre>
+<p>The preferred operating point changes because the decision objective changed—not because the classifier changed.</p>
+<h2>19. Bayes Decision Rule for Calibrated Probabilities</h2>
+<p>Suppose p(x) is the calibrated probability that Y=1.</p>
+<p>Assume zero cost for correct decisions, false-positive cost CFP and false-negative cost CFN.</p>
+<p>Predict positive when expected cost of predicting positive is lower:</p>
+<h3>CFP × [1 − p(x)] &lt; CFN × p(x)</h3>
+<p>Solving:</p>
+<h3>p(x) &gt; CFP / (CFP + CFN)</h3>
+<p>Therefore the Bayes cost-optimal probability threshold is:</p>
+<h3>τ* = CFP / (CFP + CFN)</h3>
+<p>under these assumptions.</p>
+<pre><code>for c_fp,c_fn in [(1,1),(1,9),(9,1),(1,99)]:
+    threshold=c_fp/(c_fp+c_fn)
+    print(f&quot;CFP={c_fp:&gt;2}, CFN={c_fn:&gt;2} -&gt; theoretical calibrated-probability threshold={threshold:.3f}&quot;)
+</code></pre>
+<p>This derivation is powerful, but only when the score is a meaningful calibrated probability and the assumed costs correctly represent the decision problem.</p>
+<h2>20. Why 0.5 Is Not Sacred</h2>
+<p>For equal FP and FN costs with calibrated probabilities:</p>
+<h3>τ* = 0.5</h3>
+<p>But if false negatives cost nine times as much as false positives:</p>
+<h3>τ* = 1 / (1 + 9) = 0.1</h3>
+<p>Therefore:</p>
+<h3>Default Threshold 0.5 ≠ Scientifically Optimal Threshold</h3>
+<h2>21. Likelihood Ratios</h2>
+<p>Sensitivity and specificity can be combined into likelihood ratios.</p>
+<p>Positive likelihood ratio:</p>
+<h3>LR+ = Sensitivity / (1 − Specificity)</h3>
+<h3>LR+ = TPR / FPR</h3>
+<p>Negative likelihood ratio:</p>
+<h3>LR− = (1 − Sensitivity) / Specificity</h3>
+<h3>LR− = FNR / TNR</h3>
+<p>Likelihood ratios describe how an observed classification result changes evidence about class membership.</p>
+<h2>22. From Prior Odds to Posterior Odds</h2>
+<p>Bayesian updating can be expressed as:</p>
+<h3>Posterior Odds = Prior Odds × Likelihood Ratio</h3>
+<p>where:</p>
+<h3>Prior Odds = P(Y=1) / P(Y=0)</h3>
+<p>For a positive result:</p>
+<h3>Posterior Odds+ = Prior Odds × LR+</h3>
+<p>This mathematically connects base rates with diagnostic evidence.</p>
+<pre><code>sensitivity_demo=.90
+specificity_demo=.95
+lr_plus=sensitivity_demo/(1-specificity_demo)
+
+for prevalence in [.50,.10,.01,.001]:
+    prior_odds=prevalence/(1-prevalence)
+    posterior_odds=prior_odds*lr_plus
+    posterior_prob=posterior_odds/(1+posterior_odds)
+    print(f&quot;Prevalence={prevalence:.3%} -&gt; P(Y=1 | positive)={posterior_prob:.3%}&quot;)
+</code></pre>
+<p>Even strong likelihood evidence can produce modest posterior probability when the event is extremely rare.</p>
+<h2>23. Threshold Constraints</h2>
+<p>Sometimes the objective is not to maximize a metric but satisfy a requirement.</p>
+<p>Examples:</p>
+<h3>Recall ≥ 0.95</h3>
+<p>or:</p>
+<h3>FPR ≤ 0.01</h3>
+<p>or:</p>
+<h3>Precision ≥ 0.90</h3>
+<p>Threshold selection then becomes a constrained decision problem.</p>
+<pre><code># Find highest threshold retaining at least 95% recall
+R_arr=np.array(R)
+eligible=np.where(R_arr&gt;=.95)[0]
+if len(eligible):
+    idx=eligible[-1]
+    print(&quot;Threshold with recall &gt;= .95:&quot;,thresholds[idx])
+    print(&quot;Recall:&quot;,R_arr[idx])
+    print(&quot;Precision:&quot;,P[idx])
+    print(&quot;FPR:&quot;,fpr[idx])
+
+# Find lowest threshold achieving FPR &lt;= .01
+FPR_arr=np.array(fpr)
+eligible=np.where(FPR_arr&lt;=.01)[0]
+if len(eligible):
+    idx=eligible[0]
+    print(&quot;\nThreshold with FPR &lt;= .01:&quot;,thresholds[idx])
+    print(&quot;FPR:&quot;,FPR_arr[idx])
+    print(&quot;Recall:&quot;,R_arr[idx])
+    print(&quot;Precision:&quot;,P[idx])
+</code></pre>
+<p>A constraint can be more interpretable than an abstract global optimum because it directly expresses an operational requirement.</p>
+<h2>24. Calibration</h2>
+<p>Discrimination and calibration are different.</p>
+<p>A model can rank positives above negatives well while producing probability values that do not correspond to observed frequencies.</p>
+<p>Calibration asks:</p>
+<blockquote>Among predictions near probability q, does the event occur approximately q of the time?</blockquote>
+<p>Ideally:</p>
+<h3>P(Y=1 | p̂ ≈ q) ≈ q</h3>
+<h2>25. Experiment — Reliability Diagram</h2>
+<p>We create an intentionally distorted probability scale while preserving ranking.</p>
+<pre><code># Convert simulated score to a deliberately overconfident probability-like score.
+p_uncal=np.clip(scores**0.55,0,1)
+
+bins=np.linspace(0,1,11)
+centers=[]
+observed=[]
+predicted=[]
+
+for lo,hi in zip(bins[:-1],bins[1:]):
+    mask=(p_uncal&gt;=lo)&amp;(p_uncal&lt;hi if hi&lt;1 else p_uncal&lt;=hi)
+    if mask.sum()&gt;0:
+        centers.append((lo+hi)/2)
+        predicted.append(p_uncal[mask].mean())
+        observed.append(y[mask].mean())
+
+plt.figure(figsize=(7,6))
+plt.plot([0,1],[0,1],linestyle=&quot;--&quot;,label=&quot;Perfect calibration&quot;)
+plt.plot(predicted,observed,marker=&quot;o&quot;,label=&quot;Observed reliability&quot;)
+plt.xlabel(&quot;Mean predicted probability&quot;)
+plt.ylabel(&quot;Observed positive frequency&quot;)
+plt.title(&quot;Reliability Diagram&quot;)
+plt.legend()
+plt.grid(alpha=.25)
+plt.show()
+</code></pre>
+<h2>26. Brier Score</h2>
+<p>For probability predictions p̂ᵢ and binary outcomes yᵢ:</p>
+<h3>Brier = (1/n) Σᵢ₌₁ⁿ (p̂ᵢ − yᵢ)²</h3>
+<p>Lower is better.</p>
+<p>The Brier score evaluates probabilistic prediction quality, but its interpretation still depends on prevalence and the forecasting context.</p>
+<pre><code>brier=np.mean((p_uncal-y)**2)
+print(&quot;Brier score:&quot;,brier)
+</code></pre>
+<h2>27. Calibration Matters for Cost-Based Thresholds</h2>
+<p>The threshold:</p>
+<h3>τ* = CFP / (CFP + CFN)</h3>
+<p>assumes calibrated probabilities.</p>
+<p>If scores are merely ranking scores, applying a probability-derived threshold can be invalid.</p>
+<h3>Good Ranking ≠ Good Calibration</h3>
+<h2>28. Threshold Selection Can Overfit</h2>
+<p>Suppose hundreds of thresholds are tested on the same validation data and the best observed threshold is selected.</p>
+<p>That threshold is itself a fitted choice.</p>
+<p>Therefore:</p>
+<h3>Threshold Selection = Model Selection</h3>
+<p>The selected operating point should be evaluated on data not used to optimize it.</p>
+<h2>29. Train, Tune, Test</h2>
+<p>A defensible workflow is:</p>
+<h3>Train Model → Tune Threshold → Final Test</h3>
+<p>The final test set should evaluate the model and its already-fixed threshold.</p>
+<p>Otherwise the reported performance can be optimistic.</p>
+<h2>30. Threshold Uncertainty</h2>
+<p>A threshold chosen from finite data can change when the validation sample changes.</p>
+<p>Therefore:</p>
+<h3>τ̂* ≠ Fixed Population Truth</h3>
+<p>Resampling can help study the stability of the selected threshold.</p>
+<pre><code>rng2=np.random.default_rng(81)
+selected=[]
+
+for _ in range(300):
+    idx=rng2.integers(0,len(y),len(y))
+    yb=y[idx]; sb=scores[idx]
+    values=[]
+    for t in thresholds:
+        tp,fn,fp,tn=confusion(yb,sb,t)
+        p,r,sp,fr,a,f=metric_set(tp,fn,fp,tn)
+        values.append(f)
+    selected.append(thresholds[np.nanargmax(values)])
+
+selected=np.array(selected)
+print(&quot;Median selected F1 threshold:&quot;,np.median(selected))
+print(&quot;10th–90th percentile:&quot;,np.quantile(selected,[.10,.90]))
+
+plt.figure(figsize=(8,5))
+plt.hist(selected,bins=30)
+plt.xlabel(&quot;Bootstrap-selected threshold&quot;)
+plt.ylabel(&quot;Frequency&quot;)
+plt.title(&quot;Threshold Selection Has Sampling Variability&quot;)
+plt.grid(alpha=.2)
+plt.show()
+</code></pre>
+<p>The threshold itself has uncertainty. Reporting a threshold without evidence of its stability can create false precision.</p>
+<h2>31. Distribution Shift Can Move the Best Operating Point</h2>
+<p>If prevalence, score distributions, costs, or consequences change after deployment:</p>
+<h3>τ*deployment may differ from τ*validation</h3>
+<p>Thresholds may therefore require monitoring and controlled recalibration or re-selection.</p>
+<h2>32. Thresholds and High-Stakes Systems</h2>
+<p>For high-stakes decisions, one global threshold may be insufficient.</p>
+<p>A system may instead use:</p>
+<p>- an automatic-negative region</p>
+<p>- an automatic-positive region</p>
+<p>- an uncertainty or human-review region</p>
+<p>Conceptually:</p>
+<h3>s &lt; τlow → Negative</h3>
+<h3>τlow ≤ s &lt; τhigh → Review</h3>
+<h3>s ≥ τhigh → Positive</h3>
+<p>This turns binary automation into selective decision-making.</p>
+<h2>33. Abstention and Selective Prediction</h2>
+<p>Let the model abstain when confidence is insufficient.</p>
+<p>Coverage:</p>
+<h3>Coverage = Fraction of cases receiving automatic decisions</h3>
+<p>Selective risk:</p>
+<h3>Selective Risk = Error among automatically decided cases</h3>
+<p>Reducing coverage can sometimes reduce risk by routing uncertain cases elsewhere.</p>
+<p>The correct trade-off depends on operational capacity and consequence.</p>
+<h2>34. Threshold Validation Is Contextual</h2>
+<p>A defensible threshold report should specify:</p>
+<p>- score definition</p>
+<p>- probability calibration status</p>
+<p>- positive class</p>
+<p>- prevalence</p>
+<p>- threshold</p>
+<p>- confusion matrix at threshold</p>
+<p>- sensitivity and specificity</p>
+<p>- precision and recall</p>
+<p>- FPR and FNR</p>
+<p>- cost assumptions</p>
+<p>- operational constraints</p>
+<p>- uncertainty of metrics</p>
+<p>- stability of selected threshold</p>
+<p>- subgroup operating behaviour</p>
+<p>- deployment distribution</p>
+<h2>35. OpenVals Perspective</h2>
+<p>A validation platform should distinguish three layers:</p>
+<h3>Layer 1 — Model Score Quality</h3>
+<p>Ranking, discrimination, probability quality.</p>
+<h3>Layer 2 — Decision Policy</h3>
+<p>Thresholds, abstention rules, constraints, cost functions.</p>
+<h3>Layer 3 — Deployment Evidence</h3>
+<p>Observed outcomes, drift, subgroup behaviour, threshold stability and changing prevalence.</p>
+<p>Trust cannot be assigned to the model score alone because real-world harm or value emerges from the decision policy applied to that score.</p>
+<h2>36. Scientific Decision Chain</h2>
+<h3>Model → Score → Calibration → Threshold → Decision → Error Trade-Off → Cost → Evidence → Trust Decision</h3>
+<p>This is the bridge from statistical prediction to operational decision-making.</p>
+<h2>37. Mathematical Summary</h2>
+<h3>Ŷτ = 1[s(x) ≥ τ]</h3>
+<h3>TPR = TP / (TP + FN)</h3>
+<h3>FPR = FP / (FP + TN)</h3>
+<h3>J = TPR − FPR</h3>
+<h3>AUC = P(S⁺ &gt; S⁻) + ½P(S⁺ = S⁻)</h3>
+<h3>Precision = [TPR × π] / [TPR × π + FPR × (1 − π)]</h3>
+<h3>Fβ = (1 + β²)PR / (β²P + R)</h3>
+<h3>Risk = CFP × FPR × P(Y=0) + CFN × FNR × P(Y=1)</h3>
+<h3>τ* = CFP / (CFP + CFN)</h3>
+<h3>LR+ = TPR / FPR</h3>
+<h3>LR− = FNR / TNR</h3>
+<h3>Posterior Odds = Prior Odds × Likelihood Ratio</h3>
+<h3>Brier = (1/n) Σ(p̂ᵢ − yᵢ)²</h3>
+<h2>38. Central Conclusion</h2>
+<h3>Best Threshold ≠ Universal Constant</h3>
+<blockquote>A threshold is not where the model becomes correct. It is where we choose how the model will make mistakes.</blockquote>
+<p>ROC describes discrimination.</p>
+<p>Precision–recall exposes positive-class trade-offs.</p>
+<p>AUC measures ranking quality.</p>
+<p>Calibration asks whether probabilities mean what they claim.</p>
+<p>Decision theory connects probabilities to consequences.</p>
+<p>The scientific objective is not to maximize a convenient metric. It is to choose and validate an operating policy whose errors, uncertainty, and consequences are acceptable for the intended use.</p>
+<h3>Next Episode</h3>
+<p>Episode 09 — Probability Calibration: Can We Trust the Model&#x27;s Confidence?</p>
+<p>Episode 09 can go deeper into probability semantics, calibration curves, Brier decomposition, log loss, Expected Calibration Error, overconfidence, underconfidence, temperature scaling, Platt-style calibration, isotonic calibration, and why a model can be accurate yet dangerously miscalibrated.</p>
+</body></html>
