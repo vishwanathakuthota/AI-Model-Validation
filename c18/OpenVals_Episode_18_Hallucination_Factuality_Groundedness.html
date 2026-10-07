@@ -1,0 +1,216 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Episode 18 — Hallucination, Factuality and Groundedness</title><meta name="author" content="Vishwanath Akuthota"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;max-width:1040px;margin:40px auto;padding:0 28px;line-height:1.7;color:#202124}h1{font-size:2.3rem}h2{margin-top:2.3rem;border-bottom:1px solid #eee;padding-bottom:.3rem}h3{text-align:center;font-family:Georgia,serif}pre{background:#f6f8fa;padding:16px;border-radius:8px;overflow:auto}blockquote{border-left:4px solid #555;padding:8px 18px;background:#fafafa}</style></head><body>
+<h1>AI Model Validation: From Mathematics to Trust</h1>
+<h2>Episode 18 — LLM Hallucination, Factuality, and Groundedness: How Do We Measure Whether Generative AI Is Telling the Truth?</h2>
+<p>Author: Vishwanath Akuthota</p>
+<p>Founder of DrPinnacle, OpenVals and The Foundry&#x27;s</p>
+<blockquote>Hallucination becomes scientifically measurable only after we define the claim, the evidence boundary, the verification rule, and the uncertainty of the measurement.</blockquote>
+<h3>Fluency ≠ Truth</h3>
+<h3>Confidence ≠ Evidence</h3>
+<h3>Citation ≠ Support</h3>
+<h3>Groundedness ≠ World Factuality</h3>
+<h3>Response → Atomic Claims → Evidence → Entailment / Contradiction / Unknown → Attribution → Aggregation → Uncertainty → Failure Analysis → Trust Decision → Monitoring</h3>
+<pre><code>import numpy as np
+import matplotlib.pyplot as plt
+import math
+rng=np.random.default_rng(1818)
+</code></pre>
+<h2>1. What Is Hallucination?</h2>
+<p>Unsupported factual claim, contradiction, fabricated citation, invented entity, incorrect attribution, stale fact, or unjustified certainty. A scientific study must define exactly which failure is counted.</p>
+<h2>2. Factuality</h2>
+<p>For claim c, use F(c) ∈ {Supported, Contradicted, Unresolved}. The truth standard must be defined.</p>
+<h2>3. Groundedness</h2>
+<p>G(c,D)=1 when supplied evidence D sufficiently supports claim c. Groundedness is relative to D; it is not universal truth.</p>
+<h2>4. Factuality vs Groundedness</h2>
+<p>A claim can be grounded and true, grounded in a wrong source, ungrounded but true, or ungrounded and false.</p>
+<h2>5. Evidence Boundary</h2>
+<p>Define whether evidence may come from supplied context, an approved knowledge base, authoritative sources, tools, model knowledge, or a stated combination.</p>
+<h2>6. Atomic Claims</h2>
+<p>Decompose response Y into {c1,...,cm}. Each claim should be independently verifiable where possible.</p>
+<h2>7. Claim Extraction</h2>
+<p>Claim extraction has its own errors: omission, duplication, over-splitting, under-splitting, and context loss.</p>
+<h2>8. Three Verification States</h2>
+<p>Supported, Contradicted, and Unresolved must remain distinct. Absence of evidence is not evidence of falsehood.</p>
+<h2>9. Entailment</h2>
+<p>Entail(D,c) asks whether evidence D sufficiently supports c.</p>
+<h2>10. Contradiction</h2>
+<p>Contradict(D,c) asks whether D supports an incompatible proposition. Unsupported is not the same as contradicted.</p>
+<h2>11. Factual Precision</h2>
+<p>Pf = supported factual claims / factual claims.</p>
+<h2>12. Unsupported Claim Rate</h2>
+<p>UCR = unsupported factual claims / factual claims.</p>
+<h2>13. Contradiction Rate</h2>
+<p>CR = contradicted factual claims / factual claims.</p>
+<h2>14. Factual Recall</h2>
+<p>Rf = covered required facts / required facts.</p>
+<h2>15. Factual F1</h2>
+<p>F1f = 2 Pf Rf / (Pf + Rf), when both precision and recall are meaningful.</p>
+<h2>16. Severity-Weighted Error</h2>
+<p>Ew = Σ wi·1[failure_i] / Σ wi. Weights require intended-use justification.</p>
+<pre><code>states=np.array([&quot;S&quot;,&quot;S&quot;,&quot;C&quot;,&quot;U&quot;,&quot;S&quot;,&quot;C&quot;])
+weights=np.array([1,2,5,2,1,10.])
+failure=(states!=&quot;S&quot;).astype(float)
+print(&quot;Unweighted failure:&quot;,failure.mean())
+print(&quot;Severity-weighted failure:&quot;,np.sum(weights*failure)/weights.sum())
+</code></pre>
+<h2>17. Citation Presence</h2>
+<p>A citation-shaped reference proves only that a citation exists. Citation presence ≠ citation support.</p>
+<h2>18. Citation Entailment</h2>
+<p>CE(c,d)=1 when cited source d actually entails claim c.</p>
+<h2>19. Citation Precision</h2>
+<p>Valid supporting citations / citations.</p>
+<h2>20. Citation Completeness</h2>
+<p>Cited-supported claims / factual claims requiring support.</p>
+<h2>21. Source Authority</h2>
+<p>Relevant source ≠ authoritative source. Evidence quality depends on the claim and domain.</p>
+<h2>22. Temporal Factuality</h2>
+<p>Truth(c,t) can change. Preserve claim time, source time, and evaluation time.</p>
+<h2>23. RAG Groundedness</h2>
+<p>Measure support of generated claims by retrieved context, while evaluating retrieval separately.</p>
+<h2>24. Retrieval Recall@k</h2>
+<p>Recall@k = |R∩K| / |R|.</p>
+<h2>25. Retrieval Precision@k</h2>
+<p>Precision@k = |R∩K| / k.</p>
+<pre><code>relevant={&quot;d2&quot;,&quot;d4&quot;,&quot;d7&quot;,&quot;d10&quot;}
+retrieved=[&quot;d2&quot;,&quot;d1&quot;,&quot;d7&quot;,&quot;d6&quot;,&quot;d9&quot;]
+hit=len(relevant.intersection(retrieved))
+print(&quot;Recall@5:&quot;,hit/len(relevant))
+print(&quot;Precision@5:&quot;,hit/len(retrieved))
+</code></pre>
+<h2>26. Retrieval vs Generation Failure</h2>
+<p>Separate evidence-not-retrieved, evidence-ignored, evidence-misinterpreted, unsupported external knowledge, and correct grounded generation.</p>
+<h2>27. Context Utilization</h2>
+<p>Add/remove relevant evidence, distractors, and controlled contradictions; measure response changes.</p>
+<h2>28. Distractor Robustness</h2>
+<p>Measure changes in correctness and groundedness after adding plausible irrelevant evidence.</p>
+<h2>29. Conflicting Sources</h2>
+<p>Test whether the system detects conflict, attributes competing claims, reasons about authority/date, and avoids false certainty.</p>
+<h2>30. Knowledge Boundary</h2>
+<p>A trustworthy system distinguishes known, supported, uncertain, and unknown.</p>
+<h2>31. Abstention</h2>
+<p>Coverage=P(Model answers); SelectiveRisk=E[L | Model answers].</p>
+<h2>32. Self-Reported Confidence</h2>
+<p>Linguistic confidence is not calibrated probability. Test P(Correct | confidence≈p)≈p.</p>
+<h2>33. Token Probability</h2>
+<p>High token or sequence probability does not establish factual truth.</p>
+<h2>34. Repetition-Based Uncertainty</h2>
+<p>Disagreement can signal instability, but agreement can reproduce a shared false belief. Agreement ≠ truth.</p>
+<h2>35. NLI Verification</h2>
+<p>Entailment/contradiction/neutral classifiers can support verification, but the verifier itself must be validated.</p>
+<h2>36. LLM-as-Verifier</h2>
+<p>An LLM verifier can hallucinate, be prompt-sensitive, or misunderstand sources.</p>
+<h2>37. Verifier Validation</h2>
+<p>Compare automated verification with trusted adjudication using confusion matrices, precision, recall, calibration, and stability.</p>
+<h2>38. False Positive Rate</h2>
+<p>FPR=P(flag hallucination | claim valid).</p>
+<h2>39. False Negative Rate</h2>
+<p>FNR=P(mark valid | claim invalid).</p>
+<h2>40. Detection Threshold</h2>
+<p>Flag=1[s&lt;τ]. Threshold choice trades false positives and false negatives.</p>
+<h2>41. Hallucination Denominator</h2>
+<p>Rates per response, claim, sentence, session, or task are different measurements.</p>
+<h2>42. Response-Level Failure</h2>
+<p>Under an illustrative independence assumption, P(any failure)=1-(1-p)^m.</p>
+<pre><code>for p in [.005,.01,.02,.05]:
+    print(p,[round(1-(1-p)**m,4) for m in [1,5,10,25,50]])
+</code></pre>
+<h2>43. Length Confounding</h2>
+<p>Longer answers create more claim opportunities. Compare claim counts and claim-normalized rates.</p>
+<h2>44. Correlated Claim Errors</h2>
+<p>One false premise can generate many downstream errors. Multiple wrong claims are not necessarily independent failures.</p>
+<h2>45. Root-Cause Taxonomy</h2>
+<p>Missing knowledge, retrieval failure, conflicting context, reasoning error, entity confusion, staleness, citation fabrication, prompt ambiguity, tool failure, over-generalization.</p>
+<h2>46. Entity Hallucination</h2>
+<p>Test entity existence separately from attribute correctness.</p>
+<h2>47. Numerical Hallucination</h2>
+<p>Verify arithmetic, dates, units, percentages, counts, financial values, and statistical claims.</p>
+<h2>48. Executable Verification</h2>
+<p>When a claim is computationally checkable, execute the computation instead of relying on linguistic plausibility.</p>
+<h2>49. Citation Fabrication</h2>
+<p>Validate bibliographic existence separately from whether the source supports the claim.</p>
+<h2>50. Quote Verification</h2>
+<p>Verify wording, source, location, context, and meaning.</p>
+<h2>51. Summarization Faithfulness</h2>
+<p>Every factual summary claim should be source-supported; coverage separately measures retained important content.</p>
+<h2>52. Multi-Hop Factuality</h2>
+<p>Preserve chains such as d1 + d2 → c when multiple evidence pieces are required.</p>
+<h2>53. Causal Claims</h2>
+<p>Association ≠ causation. Unsupported causal escalation is a distinct factual failure.</p>
+<h2>54. Distribution Shift</h2>
+<p>Measure factuality across new domains, time periods, languages, rare entities, terminology, and long contexts.</p>
+<h2>55. Subgroup Factuality</h2>
+<p>Measure P(Hallucination | domain), P(Hallucination | language), and other relevant slices.</p>
+<h2>56. False-Premise Tests</h2>
+<p>A robust system should challenge false premises rather than manufacture supporting details.</p>
+<h2>57. Sycophancy</h2>
+<p>Measure whether factual accuracy drops when users confidently assert false statements.</p>
+<h2>58. Conflicting-Evidence Stress</h2>
+<p>Provide incompatible sources and test conflict detection, attribution, authority reasoning, and uncertainty.</p>
+<h2>59. Freshness</h2>
+<p>Current factuality may require retrieval/tools. Static model knowledge ≠ current fact.</p>
+<h2>60. Factual Risk</h2>
+<p>Risk_j = P(F_j) C_j. Equal hallucination rates can imply unequal consequences.</p>
+<h2>61. Expected Factual Risk</h2>
+<p>ExpectedRisk = Σ p_j C_j.</p>
+<h2>62. Error-Rate Uncertainty</h2>
+<p>For approximately independent claims, SE(p̂)≈sqrt[p̂(1-p̂)/n].</p>
+<h2>63. Cluster Bootstrap</h2>
+<p>When claims are nested in responses, resample responses rather than isolated claims.</p>
+<pre><code>responses=300
+rates=rng.beta(2,18,responses)
+counts=rng.integers(3,12,responses)
+errors=np.array([rng.binomial(n,p) for n,p in zip(counts,rates)])
+observed=errors.sum()/counts.sum()
+boot=[]
+for _ in range(2000):
+    idx=rng.integers(0,responses,responses)
+    boot.append(errors[idx].sum()/counts[idx].sum())
+print(&quot;Observed claim error:&quot;,observed)
+print(&quot;Response-cluster bootstrap 95% CI:&quot;,np.quantile(boot,[.025,.975]))
+</code></pre>
+<h2>64. Zero Observed Hallucinations</h2>
+<p>Under simplified independent trials, p_upper≈3/n gives an approximate 95% upper bound after zero observed failures.</p>
+<h2>65. Benchmark Contamination</h2>
+<p>Known factuality questions may occur in training data. Fresh/private/dynamic evaluation reduces some contamination risk.</p>
+<h2>66. Dynamic Factuality Evaluation</h2>
+<p>Continuously add new documents, entities, events, policies, and production failures while versioning benchmarks.</p>
+<h2>67. Gold Standards Are Fallible</h2>
+<p>Reference answers need provenance, review, adjudication, versioning, and correction processes.</p>
+<h2>68. Evidence Hierarchy</h2>
+<p>Executable verification and authoritative primary evidence can be stronger than unverified model judgment; the hierarchy is task-dependent.</p>
+<h2>69. Evaluation Pipeline</h2>
+<p>Generate → Extract Claims → Identify Evidence → Verify S/C/U → Validate Citations → Assign Severity → Aggregate with Uncertainty → Analyze Cause → Revalidate.</p>
+<h2>70. Evidence Graph</h2>
+<p>Response → Claim → Evidence → Verification → Citation → Severity → Decision.</p>
+<h2>71. OpenVals Factuality Record</h2>
+<p>Preserve model/prompt/corpus versions, response, atomic claims, evidence boundary, sources, S/C/U states, citation mapping, authority, temporal validity, severity, verifier version, adjudication, uncertainty, root cause, and revalidation status.</p>
+<h2>72. OpenVals Metrics</h2>
+<p>Factual precision, UCR, contradiction rate, factual recall, citation precision/completeness, groundedness, retrieval recall/precision, coverage, selective risk, and severity-weighted risk.</p>
+<h2>73. Hard Gates</h2>
+<p>High-consequence systems may require non-compensatory factuality, citation, groundedness, and retrieval thresholds.</p>
+<h2>74. Continuous Monitoring</h2>
+<p>Monitor unsupported claims, contradictions, citation failures, retrieval failures, staleness, user corrections, and high-severity incidents.</p>
+<h2>75. Scientific Factuality Chain</h2>
+<p>Response → Atomic Claims → Evidence → Entailment/Contradiction/Unknown → Citation Validation → Severity → Uncertainty → Failure Analysis → Trust Decision → Monitoring.</p>
+<h2>76. Central Conclusion</h2>
+<p>Fluency ≠ Truth. Confidence ≠ Evidence. Citation ≠ Support. Unsupported ≠ Contradicted. Groundedness ≠ World Factuality. Agreement ≠ Truth. Zero observed hallucinations ≠ zero hallucination risk.</p>
+<h2>Mathematical Summary</h2>
+<h3>E(Y)={c₁,...,c_m}</h3>
+<h3>P_f=supported claims / factual claims</h3>
+<h3>UCR=unsupported claims / factual claims</h3>
+<h3>CR=contradicted claims / factual claims</h3>
+<h3>R_f=covered required facts / required facts</h3>
+<h3>F1_f=2P_fR_f/(P_f+R_f)</h3>
+<h3>CitationPrecision=valid supporting citations/citations</h3>
+<h3>CitationCompleteness=cited-supported claims/claims requiring support</h3>
+<h3>Recall@k=|R∩K|/|R|</h3>
+<h3>Precision@k=|R∩K|/k</h3>
+<h3>Coverage=P(Model answers)</h3>
+<h3>SelectiveRisk=E[L|Model answers]</h3>
+<h3>P(any failure)=1−(1−p)^m</h3>
+<h3>ExpectedRisk=Σ_jp_jC_j</h3>
+<h3>SE(p̂)≈√[p̂(1−p̂)/n]</h3>
+<h3>p_upper≈3/n</h3>
+<blockquote>Truth cannot be inferred from fluent language. It must be connected to inspectable evidence.</blockquote>
+<h2>Next Episode</h2>
+<p>Episode 19 — LLM-as-a-Judge: Can AI Reliably Evaluate AI?</p>
+</body></html>
