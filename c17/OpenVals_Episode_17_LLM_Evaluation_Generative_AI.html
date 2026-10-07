@@ -1,0 +1,897 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Episode 17 — LLM Evaluation: How Do We Scientifically Measure Generative AI?</title><meta name="description" content="AI Model Validation Episode 17: scientific LLM evaluation, semantic similarity, factuality, groundedness, hallucination, RAG, LLM-as-judge, pass@k, benchmarks, agents, uncertainty and continuous evaluation."><meta name="author" content="Vishwanath Akuthota"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;max-width:1040px;margin:42px auto;padding:0 28px;line-height:1.72;color:#202124}h1{font-size:2.35rem;line-height:1.18}h2{margin-top:2.4rem;border-bottom:1px solid #eee;padding-bottom:.3rem}h3{font-family:Georgia,serif;text-align:center;font-size:1.22rem;margin:20px 0}pre{background:#f6f8fa;padding:18px;border-radius:8px;overflow:auto}blockquote{border-left:4px solid #555;padding:9px 19px;background:#fafafa;margin-left:0}</style></head><body>
+<h1>AI Model Validation: From Mathematics to Trust</h1>
+<h2>Episode 17 — LLM Evaluation: How Do We Scientifically Measure Generative AI?</h2>
+<p>Author: Vishwanath Akuthota</p>
+<p>Founder of DrPinnacle, OpenVals and The Foundry&#x27;s</p>
+<p>Episodes 1–16 built the foundations of measurement, uncertainty, generalization, robustness, reliability, safety, fairness, explainability and reproducibility.</p>
+<p>Now the series enters generative AI.</p>
+<blockquote>How do we scientifically evaluate a system when many different answers can be valid?</blockquote>
+<p>Traditional prediction often compares one output against one target. Generative AI produces open-ended language, code, plans, summaries, tool actions and reasoning artifacts.</p>
+<h3>One Benchmark Score ≠ LLM Trust</h3>
+<p>Central proposition:</p>
+<blockquote>LLM evaluation is not the search for one perfect metric. It is the construction of evidence that a generative system satisfies the requirements of its intended use.</blockquote>
+<p>Scientific chain:</p>
+<h3>Task → Requirement → Test Case → Generation → Measurement → Judge → Uncertainty → Failure Analysis → Evidence → Trust Decision → Continuous Evaluation</h3>
+<pre><code>import numpy as np
+import matplotlib.pyplot as plt
+import re, math, platform, sys
+from collections import Counter
+rng=np.random.default_rng(1717)
+print(&quot;Python:&quot;,sys.version.split()[0])
+print(&quot;NumPy:&quot;,np.__version__)
+print(&quot;System:&quot;,platform.system(),platform.machine())
+</code></pre>
+<h2>1. Why LLM Evaluation Is Different</h2>
+<p>For classification:</p>
+<h3>ŷ ∈ {1,...,K}</h3>
+<p>For open-ended generation:</p>
+<h3>y = (t₁,t₂,...,t_L)</h3>
+<p>There can be many acceptable sequences.</p>
+<p>Therefore exact equality between generated text and one reference can be an inadequate definition of quality.</p>
+<h2>2. The Evaluation Object</h2>
+<p>Before choosing a metric, define what is being evaluated:</p>
+<h3>Base Model</h3>
+<h3>Instruction-Tuned Model</h3>
+<h3>Prompt + Model</h3>
+<h3>RAG Pipeline</h3>
+<h3>Agent</h3>
+<h3>Tool-Using Workflow</h3>
+<h3>End-to-End Application</h3>
+<h3>Model Evaluation ≠ System Evaluation</h3>
+<h2>3. Intended Use Comes First</h2>
+<p>There is no meaningful metric without a meaningful question.</p>
+<p>For each use case define:</p>
+<h3>User</h3>
+<h3>Task</h3>
+<h3>Context</h3>
+<h3>Expected Behaviour</h3>
+<h3>Failure Conditions</h3>
+<h3>Consequence</h3>
+<h3>Acceptance Criteria</h3>
+<p>Metrics should follow requirements—not the other way around.</p>
+<h2>4. Unit of Evaluation</h2>
+<p>Possible units include:</p>
+<h3>Prompt</h3>
+<h3>Response</h3>
+<h3>Claim</h3>
+<h3>Sentence</h3>
+<h3>Conversation</h3>
+<h3>Tool Call</h3>
+<h3>Agent Trajectory</h3>
+<h3>Session</h3>
+<h3>User Outcome</h3>
+<p>The denominator determines the meaning of the metric.</p>
+<h2>5. Exact Match</h2>
+<p>For generated answer y and reference y*:</p>
+<h3>EM=1[y=y*]</h3>
+<p>Exact match is useful when one canonical answer is required.</p>
+<p>It is often too strict for semantically equivalent natural-language responses.</p>
+<pre><code>reference=&quot;Paris&quot;
+answers=[&quot;Paris&quot;,&quot;paris&quot;,&quot;The answer is Paris.&quot;,&quot;France&#x27;s capital is Paris.&quot;,&quot;Lyon&quot;]
+for a in answers:
+    exact=int(a==reference)
+    normalized=int(re.sub(r&quot;[^a-z0-9 ]&quot;,&quot;&quot;,a.lower()).strip()==reference.lower())
+    print(f&quot;{a:28s} exact={exact} normalized_exact={normalized}&quot;)
+</code></pre>
+<h2>6. Exact Match Failure Mode</h2>
+<p>Two answers can communicate the same fact using different surface forms.</p>
+<h3>Lexical Difference ≠ Semantic Error</h3>
+<p>Conversely, high lexical overlap does not guarantee factual correctness.</p>
+<h2>7. Token Overlap</h2>
+<p>Let reference tokens form multiset R and candidate tokens C.</p>
+<p>Precision-like overlap:</p>
+<h3>P=Overlap/|C|</h3>
+<p>Recall-like overlap:</p>
+<h3>R=Overlap/|R|</h3>
+<p>and:</p>
+<h3>F1=2PR/(P+R)</h3>
+<p>Token overlap is transparent but remains lexical.</p>
+<pre><code>def tokens(s):
+    return re.findall(r&quot;[a-z0-9]+&quot;,s.lower())
+def token_f1(ref,cand):
+    r=Counter(tokens(ref)); c=Counter(tokens(cand))
+    overlap=sum((r &amp; c).values())
+    p=overlap/max(1,sum(c.values()))
+    rec=overlap/max(1,sum(r.values()))
+    f=0 if p+rec==0 else 2*p*rec/(p+rec)
+    return p,rec,f
+
+ref=&quot;The capital of France is Paris&quot;
+for cand in [&quot;Paris is the capital of France&quot;,
+             &quot;France has Paris as its capital&quot;,
+             &quot;The capital of France is Lyon&quot;]:
+    print(cand,token_f1(ref,cand))
+</code></pre>
+<h2>8. Lexical Metrics Have Limits</h2>
+<p>BLEU-, ROUGE- and token-overlap-style metrics can be useful for specific tasks and historical comparability.</p>
+<p>But:</p>
+<h3>Lexical Similarity ≠ Factuality</h3>
+<h3>Lexical Similarity ≠ Helpfulness</h3>
+<h3>Lexical Similarity ≠ Safety</h3>
+<p>Metric validity depends on the task.</p>
+<h2>9. Semantic Similarity</h2>
+<p>Represent texts as vectors:</p>
+<h3>e_r = Embed(reference)</h3>
+<h3>e_c = Embed(candidate)</h3>
+<p>Cosine similarity:</p>
+<h3>cos(e_r,e_c)=e_rᵀe_c/(||e_r||||e_c||)</h3>
+<p>Semantic similarity can tolerate paraphrases better than exact match.</p>
+<p>It still does not prove factual correctness.</p>
+<h2>10. Similarity Can Reward the Wrong Answer</h2>
+<p>Consider:</p>
+<p>Reference: Paris is the capital of France.</p>
+<p>Candidate: Lyon is the capital of France.</p>
+<p>The sentences are semantically and lexically very similar while one critical entity is wrong.</p>
+<h3>High Semantic Similarity ≠ Correct Answer</h3>
+<h2>11. Evaluation Must Be Decomposed</h2>
+<p>Instead of one vague “quality” score, evaluate dimensions such as:</p>
+<h3>Correctness</h3>
+<h3>Relevance</h3>
+<h3>Completeness</h3>
+<h3>Groundedness</h3>
+<h3>Factuality</h3>
+<h3>Instruction Following</h3>
+<h3>Safety</h3>
+<h3>Style</h3>
+<h3>Consistency</h3>
+<h3>Latency</h3>
+<h3>Cost</h3>
+<p>Not every application needs every dimension.</p>
+<h2>12. Correctness</h2>
+<p>Correctness asks whether the answer satisfies task truth conditions.</p>
+<p>For closed-form tasks this can be deterministic.</p>
+<p>For open-ended tasks it may require references, executable tests, expert review, or structured rubrics.</p>
+<h3>Correctness Metric Must Match the Task</h3>
+<h2>13. Factuality</h2>
+<p>Factuality concerns whether factual claims are supported by reality or the authoritative source appropriate to the task.</p>
+<p>A response can be fluent, relevant and stylistically excellent while containing false claims.</p>
+<h3>Fluency ≠ Factuality</h3>
+<h2>14. Claim-Level Evaluation</h2>
+<p>Decompose a response into claims:</p>
+<h3>Response → {c₁,c₂,...,c_m}</h3>
+<p>For each claim classify, for example:</p>
+<h3>Supported</h3>
+<h3>Contradicted</h3>
+<h3>Unverifiable / Insufficient Evidence</h3>
+<p>Then aggregate carefully.</p>
+<p>Claim extraction itself can introduce measurement error.</p>
+<pre><code>claims=[&quot;Claim 1&quot;,&quot;Claim 2&quot;,&quot;Claim 3&quot;,&quot;Claim 4&quot;,&quot;Claim 5&quot;]
+status=[&quot;supported&quot;,&quot;supported&quot;,&quot;contradicted&quot;,&quot;supported&quot;,&quot;unverifiable&quot;]
+supported=sum(s==&quot;supported&quot; for s in status)
+contradicted=sum(s==&quot;contradicted&quot; for s in status)
+print(&quot;Supported fraction:&quot;,supported/len(status))
+print(&quot;Contradicted fraction:&quot;,contradicted/len(status))
+</code></pre>
+<h2>15. Hallucination</h2>
+<p>“Hallucination” is used inconsistently.</p>
+<p>A defensible evaluation should define the failure operationally, such as:</p>
+<h3>Unsupported factual claim</h3>
+<h3>Contradiction with provided evidence</h3>
+<h3>Fabricated citation</h3>
+<h3>Invented entity</h3>
+<h3>Unjustified certainty</h3>
+<h3>Hallucination Requires a Testable Definition</h3>
+<h2>16. Groundedness</h2>
+<p>For source context D and generated response Y:</p>
+<h3>Groundedness asks whether claims in Y are supported by D.</h3>
+<p>This is especially important for RAG.</p>
+<p>Groundedness is different from world factuality:</p>
+<h3>Supported by Retrieved Context ≠ Necessarily True in the World</h3>
+<h2>17. Groundedness Precision</h2>
+<p>If m claims are extracted and s are supported by the supplied context:</p>
+<h3>Groundedness Precision = s/m</h3>
+<p>But this can reward an incomplete response that makes very few safe claims.</p>
+<p>Therefore groundedness should be combined with completeness or requirement coverage.</p>
+<h2>18. Citation Correctness</h2>
+<p>For systems producing citations, evaluate:</p>
+<h3>Citation Exists</h3>
+<h3>Citation Entails Claim</h3>
+<h3>Citation Is Relevant</h3>
+<h3>Citation Is Correctly Attached</h3>
+<h3>Citation Source Is Appropriate</h3>
+<p>A citation-shaped string is not evidence.</p>
+<h3>Citation Presence ≠ Citation Support</h3>
+<h2>19. Retrieval Evaluation</h2>
+<p>RAG quality depends on retrieval and generation.</p>
+<p>For relevant set R and retrieved set K:</p>
+<h3>Recall@k = |R∩K|/|R|</h3>
+<h3>Precision@k = |R∩K|/k</h3>
+<p>Generation cannot reliably use evidence that retrieval never supplied.</p>
+<pre><code>relevant={&quot;d2&quot;,&quot;d5&quot;,&quot;d7&quot;,&quot;d9&quot;}
+retrieved=[&quot;d5&quot;,&quot;d1&quot;,&quot;d7&quot;,&quot;d3&quot;,&quot;d8&quot;]
+hit=len(relevant.intersection(retrieved))
+print(&quot;Recall@5:&quot;,hit/len(relevant))
+print(&quot;Precision@5:&quot;,hit/len(retrieved))
+</code></pre>
+<h2>20. Retrieval and Generation Must Be Separated</h2>
+<p>A wrong RAG answer can arise from:</p>
+<h3>Retrieval Failure</h3>
+<h3>Ranking Failure</h3>
+<h3>Context Truncation</h3>
+<h3>Generation Failure</h3>
+<h3>Citation Failure</h3>
+<h3>End-to-End Failure ≠ Automatically Model Failure</h3>
+<h2>21. Context Utilization</h2>
+<p>Even when correct evidence is retrieved, the generator may ignore it.</p>
+<p>A useful test asks whether output quality changes appropriately when relevant evidence is added, removed, or contradicted.</p>
+<p>This connects evaluation with perturbation testing.</p>
+<h2>22. Faithfulness to Context</h2>
+<p>A model can answer from memorized knowledge rather than the supplied context.</p>
+<p>Depending on the application this can be acceptable—or a serious failure.</p>
+<p>Therefore define whether the system is expected to:</p>
+<h3>Use Only Context</h3>
+<h3>Prefer Context</h3>
+<h3>Combine Context and Model Knowledge</h3>
+<h3>Abstain When Context Is Insufficient</h3>
+<h2>23. Completeness</h2>
+<p>Suppose a task has required elements:</p>
+<h3>R={r₁,...,r_m}</h3>
+<p>and output covers subset C.</p>
+<p>A simple requirement coverage measure is:</p>
+<h3>Completeness=|C|/|R|</h3>
+<p>The requirements must themselves be valid and sufficiently granular.</p>
+<h2>24. Instruction Following</h2>
+<p>Convert an instruction into atomic constraints:</p>
+<h3>C₁,C₂,...,C_m</h3>
+<p>Then evaluate:</p>
+<h3>IF = (1/m)Σ_j1[C_j satisfied]</h3>
+<p>This is more auditable than asking whether a response “generally followed instructions.”</p>
+<pre><code>constraints={
+    &quot;under_100_words&quot;:True,
+    &quot;contains_summary&quot;:True,
+    &quot;no_markdown_table&quot;:False,
+    &quot;mentions_limitations&quot;:True
+}
+score=np.mean(list(constraints.values()))
+print(&quot;Instruction-following score:&quot;,score)
+print(constraints)
+</code></pre>
+<h2>25. Rubric Evaluation</h2>
+<p>A rubric maps qualitative requirements to explicit scoring anchors.</p>
+<p>Example:</p>
+<h3>0 = Incorrect / unusable</h3>
+<h3>1 = Major errors</h3>
+<h3>2 = Partially correct</h3>
+<h3>3 = Correct with minor omissions</h3>
+<h3>4 = Fully correct and complete</h3>
+<p>The meaning of each level should be observable and task-specific.</p>
+<h2>26. Ordinal Scores Are Not Automatically Interval Scales</h2>
+<p>A rubric score of 4 is not necessarily “twice as good” as 2.</p>
+<h3>Ordinal Rank ≠ Equal Numerical Distance</h3>
+<p>Averages of rubric scores can be operationally useful, but their interpretation should remain cautious.</p>
+<h2>27. Human Evaluation</h2>
+<p>Humans can evaluate nuanced criteria unavailable to deterministic metrics.</p>
+<p>But human judgment introduces:</p>
+<h3>Rater Variance</h3>
+<h3>Expertise Differences</h3>
+<h3>Fatigue</h3>
+<h3>Ambiguous Rubrics</h3>
+<h3>Preference Bias</h3>
+<h3>Order Effects</h3>
+<p>Human evaluation is a measurement process that must itself be validated.</p>
+<h2>28. Inter-Rater Agreement</h2>
+<p>If two raters classify outputs, Episode 16&#x27;s agreement logic applies.</p>
+<h3>κ=(P_o−P_e)/(1−P_e)</h3>
+<p>Low agreement may indicate ambiguous criteria, difficult examples, inadequate training, or genuine subjectivity.</p>
+<h2>29. LLM-as-a-Judge</h2>
+<p>An LLM can evaluate another model&#x27;s output against a rubric.</p>
+<p>Potential benefits:</p>
+<h3>Scale</h3>
+<h3>Speed</h3>
+<h3>Repeatability</h3>
+<h3>Structured Feedback</h3>
+<p>Potential risks:</p>
+<h3>Judge Bias</h3>
+<h3>Position Bias</h3>
+<h3>Self-Preference</h3>
+<h3>Prompt Sensitivity</h3>
+<h3>Version Drift</h3>
+<h3>Hallucinated Critiques</h3>
+<h3>LLM Judge ≠ Ground Truth</h3>
+<h2>30. Judge Calibration</h2>
+<p>Compare automated judge decisions with trusted human labels.</p>
+<p>For binary accept/reject judgment, compute:</p>
+<h3>Accuracy</h3>
+<h3>Precision</h3>
+<h3>Recall</h3>
+<h3>Specificity</h3>
+<h3>Calibration if probabilistic</h3>
+<p>The evaluator should be evaluated before it is used as evidence.</p>
+<pre><code>N=1000
+human=rng.binomial(1,.65,N)
+judge=np.where(rng.random(N)&lt;.88,human,1-human)
+tp=np.sum((human==1)&amp;(judge==1))
+tn=np.sum((human==0)&amp;(judge==0))
+fp=np.sum((human==0)&amp;(judge==1))
+fn=np.sum((human==1)&amp;(judge==0))
+print(&quot;Judge accuracy:&quot;,(tp+tn)/N)
+print(&quot;Judge precision:&quot;,tp/(tp+fp))
+print(&quot;Judge recall:&quot;,tp/(tp+fn))
+print(&quot;Judge specificity:&quot;,tn/(tn+fp))
+</code></pre>
+<h2>31. Position Bias</h2>
+<p>In pairwise evaluation, a judge may prefer the first or second response because of presentation order.</p>
+<p>Test both:</p>
+<h3>Judge(A,B)</h3>
+<p>and:</p>
+<h3>Judge(B,A)</h3>
+<p>A robust preference should not depend strongly on position.</p>
+<h2>32. Pairwise Preference</h2>
+<p>Instead of absolute scoring, ask which response better satisfies a criterion.</p>
+<p>For models A and B:</p>
+<h3>p_AB=P(A preferred over B)</h3>
+<p>Estimate preference over many matched test cases.</p>
+<p>Pairwise evaluation can be easier than absolute scoring, but remains judge-dependent.</p>
+<pre><code>N=500
+wins_A=287
+p=wins_A/N
+se=np.sqrt(p*(1-p)/N)
+print(&quot;A preference rate:&quot;,p)
+print(&quot;Approx 95% interval:&quot;,(p-1.96*se,p+1.96*se))
+</code></pre>
+<h2>33. Ties Matter</h2>
+<p>For pairwise evaluation preserve:</p>
+<h3>A Wins</h3>
+<h3>B Wins</h3>
+<h3>Tie</h3>
+<p>Forcing every ambiguous case into A or B can exaggerate differences.</p>
+<h3>Forced Preference ≠ Evidence of Meaningful Difference</h3>
+<h2>34. Pairwise Transitivity Is Not Guaranteed</h2>
+<p>Preferences can be cyclic:</p>
+<h3>A &gt; B</h3>
+<h3>B &gt; C</h3>
+<h3>C &gt; A</h3>
+<p>This can occur when systems have different strengths across tasks.</p>
+<p>A single total ranking can hide multidimensional performance.</p>
+<h2>35. Elo-Style Ratings</h2>
+<p>Pairwise outcomes can be summarized through rating systems.</p>
+<p>A logistic expected score can be written:</p>
+<h3>P(A beats B)=1/[1+10^((R_B−R_A)/400)]</h3>
+<p>Ratings are relative to the comparison pool and evaluation protocol.</p>
+<h3>Leaderboard Rating ≠ Absolute Capability</h3>
+<h2>36. Pass@k</h2>
+<p>For tasks where multiple generated attempts are allowed:</p>
+<h3>pass@k = P(at least one of k attempts succeeds)</h3>
+<p>Under independent attempts with per-attempt success p:</p>
+<h3>pass@k=1−(1−p)^k</h3>
+<p>Real attempts may be correlated.</p>
+<pre><code>for p in [.1,.3,.5,.8]:
+    vals=[1-(1-p)**k for k in [1,2,5,10]]
+    print(&quot;p=&quot;,p,&quot;pass@1,2,5,10=&quot;,np.round(vals,4))
+</code></pre>
+<h2>37. Unbiased pass@k Estimator for Sampled Candidates</h2>
+<p>If n candidates are sampled and c are correct, a common estimator for k≤n is:</p>
+<h3>pass@k = 1 − C(n−c,k)/C(n,k)</h3>
+<p>when the combinatorial assumptions apply.</p>
+<p>This differs from simply raising an empirical p under independence.</p>
+<pre><code>def pass_at_k(n,c,k):
+    if n-c &lt; k:
+        return 1.0
+    return 1-math.comb(n-c,k)/math.comb(n,k)
+for k in [1,2,5,10]:
+    print(&quot;k=&quot;,k,&quot;estimate=&quot;,pass_at_k(20,6,k))
+</code></pre>
+<h2>38. Code Evaluation</h2>
+<p>For generated code, natural-language similarity is usually weak evidence.</p>
+<p>Better evidence may include:</p>
+<h3>Compilation</h3>
+<h3>Unit Tests</h3>
+<h3>Property Tests</h3>
+<h3>Security Tests</h3>
+<h3>Performance Tests</h3>
+<h3>Hidden Tests</h3>
+<h3>Similar Code Text ≠ Correct Program</h3>
+<h2>39. Executable Evaluation</h2>
+<p>When outputs have executable semantics, evaluate behaviour directly.</p>
+<p>Examples:</p>
+<h3>SQL → execute query safely</h3>
+<h3>Code → run tests</h3>
+<h3>Structured JSON → validate schema</h3>
+<h3>Mathematics → verify result</h3>
+<h3>Tool plan → simulate or execute under controls</h3>
+<p>Executable tests often provide stronger evidence than text similarity.</p>
+<h2>40. Structured Output Validation</h2>
+<p>For JSON or schema-constrained output:</p>
+<h3>Syntax Validity</h3>
+<h3>Schema Validity</h3>
+<h3>Required Fields</h3>
+<h3>Type Correctness</h3>
+<h3>Semantic Constraints</h3>
+<p>These can often be evaluated deterministically.</p>
+<h2>41. Conversation Evaluation</h2>
+<p>Single-turn quality can miss failures that emerge over a dialogue.</p>
+<p>Evaluate:</p>
+<h3>Context Retention</h3>
+<h3>Contradiction</h3>
+<h3>Goal Completion</h3>
+<h3>Recovery</h3>
+<h3>User Corrections</h3>
+<h3>Long-Horizon Consistency</h3>
+<h3>Good Turn ≠ Good Conversation</h3>
+<h2>42. Agent Evaluation</h2>
+<p>For an agent, final-answer quality is only one dimension.</p>
+<p>Measure:</p>
+<h3>Goal Success</h3>
+<h3>Tool Correctness</h3>
+<h3>Step Efficiency</h3>
+<h3>Policy Compliance</h3>
+<h3>Recovery</h3>
+<h3>Cost</h3>
+<h3>Latency</h3>
+<h3>Safety</h3>
+<h3>Reproducibility</h3>
+<h3>Correct Final Answer ≠ Correct Agent Process</h3>
+<h2>43. Trajectory Evaluation</h2>
+<p>Represent an agent trajectory:</p>
+<h3>τ=(s₀,a₀,s₁,a₁,...,s_T)</h3>
+<p>Evaluate both outcome and path.</p>
+<p>A system can reach the correct result through unsafe, wasteful, unauthorized or irreproducible actions.</p>
+<h2>44. Cost and Latency</h2>
+<p>Quality is often constrained by operational resources.</p>
+<p>For task i:</p>
+<h3>Cost_i</h3>
+<h3>Latency_i</h3>
+<h3>Quality_i</h3>
+<p>A useful system must satisfy a feasible operating region rather than maximize quality without constraint.</p>
+<h2>45. Cost Efficiency</h2>
+<p>One possible application-specific quantity is:</p>
+<h3>Efficiency = Quality / Cost</h3>
+<p>But ratios can behave badly and can obscure minimum quality requirements.</p>
+<p>A better decision may use constraints:</p>
+<h3>maximize Quality subject to Cost≤C_max and Latency≤L_max</h3>
+<h2>46. Multi-Metric Evaluation</h2>
+<p>Represent evidence as vector:</p>
+<h3>M=(Correctness, Groundedness, Safety, Consistency, Latency, Cost,...)</h3>
+<p>Collapsing this immediately into one scalar can hide failure.</p>
+<h3>Metric Vector → Evidence Profile</h3>
+<p>A weighted score is justified only when the decision semantics of the weights are explicit.</p>
+<h2>47. Metric Correlation</h2>
+<p>If several metrics are highly correlated, they may provide redundant evidence.</p>
+<p>If they disagree, the disagreement can reveal different failure dimensions.</p>
+<h3>More Metrics ≠ More Independent Evidence</h3>
+<h2>48. Composite Scores</h2>
+<p>A weighted composite:</p>
+<h3>S=Σ_jw_jM_j</h3>
+<p>requires choices about:</p>
+<h3>Normalization</h3>
+<h3>Direction</h3>
+<h3>Scale</h3>
+<h3>Weights</h3>
+<h3>Missing Metrics</h3>
+<h3>Compensability</h3>
+<p>A severe safety failure should not necessarily be “compensated” by high style quality.</p>
+<h2>49. Hard Gates Before Composite Scores</h2>
+<p>A stronger architecture can use:</p>
+<h3>Safety Gate</h3>
+<h3>Factuality Gate</h3>
+<h3>Reliability Gate</h3>
+<p>followed by optimization among systems that pass.</p>
+<h3>Constraint Satisfaction → Then Ranking</h3>
+<p>This prevents unacceptable failure from disappearing inside an average.</p>
+<h2>50. Benchmark Design</h2>
+<p>A benchmark should define:</p>
+<h3>Target Capability</h3>
+<h3>Task Distribution</h3>
+<h3>Sampling</h3>
+<h3>Difficulty</h3>
+<h3>Ground Truth</h3>
+<h3>Scoring</h3>
+<h3>Repetitions</h3>
+<h3>Uncertainty</h3>
+<h3>Leakage Controls</h3>
+<h3>Version</h3>
+<p>A benchmark is an experiment—not merely a spreadsheet of questions.</p>
+<h2>51. Benchmark Representativeness</h2>
+<p>Let:</p>
+<h3>P_bench(X) = benchmark task distribution</h3>
+<h3>P_deploy(X) = deployment task distribution</h3>
+<p>If these differ materially:</p>
+<h3>Benchmark Performance ≠ Deployment Performance</h3>
+<p>This is Episode 11 distribution shift applied to evaluation itself.</p>
+<h2>52. Benchmark Saturation</h2>
+<p>When models approach the ceiling of a benchmark, differences become harder to interpret.</p>
+<p>High scores can indicate:</p>
+<h3>Capability</h3>
+<h3>Easy Benchmark</h3>
+<h3>Contamination</h3>
+<h3>Narrow Coverage</h3>
+<h3>Ceiling Effects</h3>
+<p>Benchmark difficulty must evolve with systems.</p>
+<h2>53. Benchmark Contamination</h2>
+<p>If benchmark items or close variants appear in training data:</p>
+<h3>Evaluation Independence Is Violated</h3>
+<p>Observed performance can overestimate generalization.</p>
+<p>Contamination is difficult to rule out completely for large web-trained models, so claims should be calibrated accordingly.</p>
+<h2>54. Memorization vs Generalization</h2>
+<p>A model answering a known benchmark item correctly may be using learned general capability—or memorized exposure.</p>
+<p>Fresh, private, procedurally generated, or time-separated tests can reduce some contamination risks.</p>
+<h3>Correct Benchmark Answer ≠ Proven Generalization</h3>
+<h2>55. Dynamic Evaluation</h2>
+<p>Static benchmarks become stale.</p>
+<p>Dynamic evaluation can rotate:</p>
+<h3>Fresh Questions</h3>
+<h3>New Documents</h3>
+<h3>Current Tasks</h3>
+<h3>Adversarial Cases</h3>
+<h3>Real Failure Cases</h3>
+<p>Continuous evaluation should preserve comparability while introducing fresh evidence.</p>
+<h2>56. Challenge Sets</h2>
+<p>Average random samples may underrepresent important failures.</p>
+<p>Create targeted challenge sets for:</p>
+<h3>Negation</h3>
+<h3>Ambiguity</h3>
+<h3>Long Context</h3>
+<h3>Rare Entities</h3>
+<h3>Conflicting Evidence</h3>
+<h3>Prompt Injection</h3>
+<h3>Multilingual Inputs</h3>
+<h3>Tool Failures</h3>
+<h3>Edge Cases</h3>
+<p>Challenge sets complement representative sampling.</p>
+<h2>57. Representative Set vs Challenge Set</h2>
+<p>Representative sets estimate expected deployment performance.</p>
+<p>Challenge sets probe known vulnerabilities.</p>
+<h3>Representative Evidence ≠ Stress Evidence</h3>
+<p>Both are needed for different scientific questions.</p>
+<h2>58. Difficulty Stratification</h2>
+<p>Report performance by task difficulty:</p>
+<h3>M_easy</h3>
+<h3>M_medium</h3>
+<h3>M_hard</h3>
+<p>An aggregate can hide collapse on difficult tasks.</p>
+<p>Difficulty labels themselves should be independently justified where possible.</p>
+<h2>59. Slice Evaluation</h2>
+<p>Evaluate conditional performance:</p>
+<h3>M | Domain</h3>
+<h3>M | Language</h3>
+<h3>M | Task Type</h3>
+<h3>M | Context Length</h3>
+<h3>M | User Group</h3>
+<h3>M | Risk Level</h3>
+<p>This connects LLM evaluation to subgroup validation.</p>
+<h2>60. Long-Context Evaluation</h2>
+<p>A model&#x27;s advertised context window does not establish effective use of information across that window.</p>
+<p>Test:</p>
+<h3>Retrieval Position</h3>
+<h3>Distractor Density</h3>
+<h3>Multi-Hop Dependency</h3>
+<h3>Contradiction</h3>
+<h3>Recency</h3>
+<h3>Context Utilization</h3>
+<h3>Context Capacity ≠ Context Competence</h3>
+<h2>61. Robustness of LLM Evaluation</h2>
+<p>Perturb prompts while preserving intended meaning.</p>
+<p>Measure:</p>
+<h3>ΔM = M(original)−M(perturbed)</h3>
+<p>Robust LLM evaluation should include paraphrases, formatting changes, irrelevant context and realistic noise.</p>
+<h2>62. Consistency Across Repeated Generations</h2>
+<p>Episode 16 applies directly.</p>
+<p>For task i and repeated generation r:</p>
+<h3>M_ir</h3>
+<p>Measure:</p>
+<h3>Mean</h3>
+<h3>Variance</h3>
+<h3>Failure Probability</h3>
+<h3>Lower Quantiles</h3>
+<h3>One Good Completion ≠ Stable Capability</h3>
+<h2>63. Best-of-N Can Hide Instability</h2>
+<p>If only the best output among N attempts is reported, performance can appear much stronger than a typical user experience.</p>
+<p>Always distinguish:</p>
+<h3>pass@1</h3>
+<h3>pass@k</h3>
+<h3>best-of-N</h3>
+<h3>average-of-N</h3>
+<p>These are different operational claims.</p>
+<h2>64. Self-Consistency</h2>
+<p>Generate multiple candidate reasoning paths or answers and aggregate them.</p>
+<p>If each independent candidate is correct with probability p, majority-vote accuracy can be computed under simplified independence assumptions.</p>
+<p>Real generations are correlated, so theoretical gains can be overstated.</p>
+<pre><code>def majority_prob(n,p):
+    start=n//2+1
+    return sum(math.comb(n,k)*(p**k)*((1-p)**(n-k)) for k in range(start,n+1))
+for p in [.55,.65,.75]:
+    print(&quot;p=&quot;,p,&quot;majority n=5:&quot;,majority_prob(5,p),&quot;n=11:&quot;,majority_prob(11,p))
+</code></pre>
+<h2>65. Correlated Samples</h2>
+<p>Repeated LLM outputs share the same model, prompt and learned representations.</p>
+<p>Therefore errors can be strongly correlated.</p>
+<h3>k Samples ≠ k Independent Opinions</h3>
+<p>Self-consistency should be empirically validated rather than assumed.</p>
+<h2>66. Confidence Is Difficult in Generative AI</h2>
+<p>Token probabilities are not automatically calibrated probabilities that an entire answer is correct.</p>
+<p>Sequence likelihood can prefer fluent common text rather than factual truth.</p>
+<h3>High Token Probability ≠ High Answer Correctness</h3>
+<h2>67. Abstention</h2>
+<p>For uncertain tasks, an LLM may abstain or escalate.</p>
+<p>Evaluate:</p>
+<h3>Coverage=P(Model Answers)</h3>
+<h3>Selective Risk=E[L|Model Answers]</h3>
+<p>A useful model should know when the evidence is insufficient—but abstention quality itself requires validation.</p>
+<h2>68. Uncertainty Through Repetition</h2>
+<p>Disagreement across repeated outputs can be an uncertainty signal.</p>
+<p>But:</p>
+<h3>Agreement ≠ Correctness</h3>
+<h3>Disagreement ≠ Incorrectness</h3>
+<p>Use repeated-generation uncertainty as one evidence source, not a truth detector.</p>
+<h2>69. Evaluation Uncertainty</h2>
+<p>Every reported LLM metric is estimated from finite test cases and possibly stochastic generations.</p>
+<p>Preserve:</p>
+<h3>Sample Size</h3>
+<h3>Standard Error</h3>
+<h3>Confidence Interval</h3>
+<h3>Repetition Count</h3>
+<h3>Judge Variance</h3>
+<h3>Score Without Uncertainty = Incomplete Evidence</h3>
+<h2>70. Bootstrap Confidence Intervals</h2>
+<p>For task-level scores M₁,...,M_n, bootstrap tasks to estimate uncertainty in the aggregate.</p>
+<p>This is useful when analytic standard errors are inconvenient, provided the resampling unit matches the experimental design.</p>
+<pre><code>n=300
+task_scores=np.clip(rng.beta(8,2,n),0,1)
+B=3000
+means=np.empty(B)
+for b in range(B):
+    means[b]=rng.choice(task_scores,size=n,replace=True).mean()
+print(&quot;Observed mean:&quot;,task_scores.mean())
+print(&quot;Bootstrap 95% CI:&quot;,np.quantile(means,[.025,.975]))
+</code></pre>
+<h2>71. Paired Model Comparison</h2>
+<p>When models A and B answer the same tasks, compare paired differences:</p>
+<h3>D_i=M_A,i−M_B,i</h3>
+<p>This removes some task-difficulty variation.</p>
+<p>Report:</p>
+<h3>D̄</h3>
+<h3>Confidence Interval</h3>
+<h3>Win/Tie/Loss</h3>
+<h3>Failure-Type Differences</h3>
+<h3>Higher Mean Alone ≠ Complete Comparison</h3>
+<h2>72. Practical Significance</h2>
+<p>A statistically detectable 0.3-point improvement may not matter operationally.</p>
+<p>A small average improvement may still matter if it eliminates a severe failure mode.</p>
+<h3>Statistical Significance ≠ Practical Significance</h3>
+<h2>73. Multiple Model Selection</h2>
+<p>If many models, prompts and configurations are tested and only the best is reported, selection bias occurs.</p>
+<h3>Winner&#x27;s Curse</h3>
+<p>The selected configuration should be confirmed on untouched evidence.</p>
+<h2>74. Evaluation Overfitting</h2>
+<p>Repeated optimization against the same benchmark can overfit the benchmark even without conventional training.</p>
+<h3>Benchmark Feedback → Configuration Changes → Benchmark Reuse</h3>
+<p>Eventually the benchmark becomes part of the development process rather than independent validation.</p>
+<h2>75. Development vs Validation Sets</h2>
+<p>Maintain separation:</p>
+<h3>Development Evaluation</h3>
+<h3>Validation Evaluation</h3>
+<h3>Final / External Evaluation</h3>
+<p>The more a test set influences decisions, the less independent it becomes.</p>
+<h2>76. Failure Taxonomy</h2>
+<p>Do not store only scores.</p>
+<p>Classify failures such as:</p>
+<h3>Factual Error</h3>
+<h3>Unsupported Claim</h3>
+<h3>Missing Requirement</h3>
+<h3>Reasoning Error</h3>
+<h3>Retrieval Error</h3>
+<h3>Tool Error</h3>
+<h3>Safety Violation</h3>
+<h3>Formatting Failure</h3>
+<h3>Refusal Error</h3>
+<h3>Overconfidence</h3>
+<p>Failure categories support engineering remediation.</p>
+<h2>77. Severity-Weighted Failure Analysis</h2>
+<p>Not all errors have equal consequence.</p>
+<p>For failure class j:</p>
+<h3>Risk_j=P(F_j)C_j</h3>
+<p>Episode 13 safety mathematics therefore belongs inside LLM evaluation when consequences differ materially.</p>
+<h2>78. Error Clustering</h2>
+<p>A model may fail repeatedly on the same semantic pattern.</p>
+<p>Cluster failures by:</p>
+<h3>Task</h3>
+<h3>Domain</h3>
+<h3>Cause</h3>
+<h3>Prompt Pattern</h3>
+<h3>Tool</h3>
+<h3>Language</h3>
+<h3>Severity</h3>
+<p>This reveals systematic weaknesses hidden by aggregate rates.</p>
+<h2>79. Red-Team Evaluation</h2>
+<p>Adversarial evaluation intentionally searches for failures.</p>
+<p>It complements representative benchmarks.</p>
+<p>Measure not only whether a jailbreak or failure occurs, but:</p>
+<h3>Attack Class</h3>
+<h3>Attempts</h3>
+<h3>Success Rate</h3>
+<h3>Severity</h3>
+<h3>Transferability</h3>
+<h3>Reproducibility</h3>
+<h3>Defense Effectiveness</h3>
+<h2>80. Safety Evaluation</h2>
+<p>Safety cannot be reduced to refusal rate.</p>
+<p>Evaluate both:</p>
+<h3>Unsafe Compliance</h3>
+<h3>Excessive Refusal</h3>
+<p>A model that refuses everything may appear safe under one metric while being useless.</p>
+<h3>Safety ≠ Maximum Refusal</h3>
+<h2>81. Over-Refusal</h2>
+<p>For benign request B:</p>
+<h3>OverRefusal=P(Refuse|B)</h3>
+<p>For harmful request H:</p>
+<h3>UnsafeCompliance=P(Comply|H)</h3>
+<p>A useful safety evaluation studies both error directions.</p>
+<h2>82. Multi-Turn Safety</h2>
+<p>A model safe on isolated prompts can fail after:</p>
+<h3>Context Accumulation</h3>
+<h3>Role Changes</h3>
+<h3>Indirect Instructions</h3>
+<h3>Tool Feedback</h3>
+<h3>Long-Horizon Planning</h3>
+<p>Safety evaluation must match the interaction horizon.</p>
+<h2>83. Evaluation of Tool Use</h2>
+<p>For tool calls evaluate:</p>
+<h3>Correct Tool</h3>
+<h3>Correct Arguments</h3>
+<h3>Authorization</h3>
+<h3>Sequence</h3>
+<h3>Result Interpretation</h3>
+<h3>Recovery on Failure</h3>
+<p>A linguistically excellent answer does not compensate for an unsafe tool action.</p>
+<h2>84. Agent Goal Completion</h2>
+<p>Define goal success at the task level:</p>
+<h3>Success=1[Required terminal conditions satisfied]</h3>
+<p>Then separately evaluate trajectory efficiency and safety.</p>
+<h3>Goal Success ≠ Process Quality</h3>
+<h2>85. Agent Efficiency</h2>
+<p>For successful runs:</p>
+<h3>Steps</h3>
+<h3>Tokens</h3>
+<h3>Tool Calls</h3>
+<h3>Cost</h3>
+<h3>Latency</h3>
+<p>Efficiency should usually be evaluated subject to correctness and safety rather than as a substitute for them.</p>
+<h2>86. Evaluation Data Lineage</h2>
+<p>Every test case should preserve:</p>
+<h3>Source</h3>
+<h3>Author</h3>
+<h3>Timestamp</h3>
+<h3>License/Permission where relevant</h3>
+<h3>Version</h3>
+<h3>Transformation</h3>
+<h3>Expected Behaviour</h3>
+<h3>Risk Category</h3>
+<p>Evaluation data is part of the evidence chain.</p>
+<h2>87. Evaluation Versioning</h2>
+<p>Version:</p>
+<h3>Dataset</h3>
+<h3>Rubric</h3>
+<h3>Judge</h3>
+<h3>Prompt</h3>
+<h3>Metric Implementation</h3>
+<h3>Model</h3>
+<h3>Retrieval Corpus</h3>
+<h3>Tool Environment</h3>
+<p>Otherwise score changes cannot be scientifically attributed.</p>
+<h2>88. Evidence Record</h2>
+<p>For every evaluation result preserve:</p>
+<h3>Claim</h3>
+<h3>Requirement</h3>
+<h3>Test Set</h3>
+<h3>Sampling Design</h3>
+<h3>Model/System Version</h3>
+<h3>Configuration</h3>
+<h3>Metric</h3>
+<h3>Judge</h3>
+<h3>Raw Outcomes</h3>
+<h3>Aggregate</h3>
+<h3>Uncertainty</h3>
+<h3>Failures</h3>
+<h3>Limitations</h3>
+<h3>Decision</h3>
+<h3>Metric Without Provenance ≠ Reproducible Evidence</h3>
+<h2>89. OpenVals Evaluation Architecture</h2>
+<p>A rigorous OpenVals evaluation layer can separate:</p>
+<h3>Dataset</h3>
+<h3>Runner</h3>
+<h3>Model Adapter</h3>
+<h3>Metric</h3>
+<h3>Judge</h3>
+<h3>Failure Taxonomy</h3>
+<h3>Evidence Store</h3>
+<h3>Benchmark Comparison</h3>
+<h3>Continuous Monitor</h3>
+<p>This allows new models, judges and metrics without destroying evidence lineage.</p>
+<h2>90. OpenVals Multi-Dimensional Evidence</h2>
+<p>OpenVals should preserve dimensions rather than prematurely collapsing them:</p>
+<h3>Accuracy / Correctness</h3>
+<h3>Semantic Similarity</h3>
+<h3>Factuality</h3>
+<h3>Groundedness</h3>
+<h3>Reliability</h3>
+<h3>Safety</h3>
+<h3>Consistency</h3>
+<h3>Variance</h3>
+<h3>Latency</h3>
+<h3>Cost Efficiency</h3>
+<h3>Robustness</h3>
+<h3>Trust Evidence</h3>
+<p>A trust decision should remain traceable to underlying measurements.</p>
+<h2>91. The Danger of the Universal LLM Score</h2>
+<p>A single score can hide:</p>
+<h3>Catastrophic Tail Failure</h3>
+<h3>Poor Groundedness</h3>
+<h3>Subgroup Failure</h3>
+<h3>High Cost</h3>
+<h3>Instability</h3>
+<h3>Unsafe Tool Use</h3>
+<h3>Scalar Ranking ≠ Complete Assurance</h3>
+<p>Use scalar summaries only when the decision model justifies them.</p>
+<h2>92. Evaluation as Measurement Science</h2>
+<p>A scientific LLM evaluation asks:</p>
+<h3>What construct are we measuring?</h3>
+<h3>Is the metric valid for that construct?</h3>
+<h3>Is the measurement reliable?</h3>
+<h3>What is the uncertainty?</h3>
+<h3>Does the benchmark represent deployment?</h3>
+<h3>Can the result be reproduced?</h3>
+<h3>What failures are hidden by the average?</h3>
+<p>This turns evaluation into measurement science.</p>
+<h2>93. Evaluation Ladder</h2>
+<p>A useful progression is:</p>
+<h3>Exact Match</h3>
+<h3>Task Metric</h3>
+<h3>Semantic Metric</h3>
+<h3>Rubric</h3>
+<h3>Human / Judge Evaluation</h3>
+<h3>Failure Analysis</h3>
+<h3>Stress Testing</h3>
+<h3>Repeated Evaluation</h3>
+<h3>Continuous Validation</h3>
+<h3>Assurance</h3>
+<p>No single rung replaces the others.</p>
+<h2>94. Scientific LLM Evaluation Chain</h2>
+<h3>Intended Use → Requirement → Dataset → Generation → Metric/Judge → Uncertainty → Failure Analysis → Stress Test → Evidence → Decision → Monitoring → Revalidation</h3>
+<p>This is the bridge from benchmark culture to AI assurance.</p>
+<h2>95. Mathematical Summary</h2>
+<h3>EM=1[y=y*]</h3>
+<h3>F1=2PR/(P+R)</h3>
+<h3>cos(a,b)=aᵀb/(||a||||b||)</h3>
+<h3>Groundedness=supported claims/claims</h3>
+<h3>Recall@k=|R∩K|/|R|</h3>
+<h3>Precision@k=|R∩K|/k</h3>
+<h3>Completeness=covered requirements/required requirements</h3>
+<h3>κ=(P_o−P_e)/(1−P_e)</h3>
+<h3>p_AB=P(A preferred over B)</h3>
+<h3>pass@k=1−(1−p)^k  under independent attempts</h3>
+<h3>pass@k=1−C(n−c,k)/C(n,k)  for the sampled-candidate estimator</h3>
+<h3>M=(M₁,M₂,...,M_d)</h3>
+<h3>S=Σ_jw_jM_j  only when aggregation semantics are justified</h3>
+<h3>D_i=M_A,i−M_B,i</h3>
+<h3>Risk_j=P(F_j)C_j</h3>
+<h3>Coverage=P(Model Answers)</h3>
+<h3>Selective Risk=E[L|Model Answers]</h3>
+<h2>96. Central Conclusion</h2>
+<h3>Exact Match ≠ Semantic Quality</h3>
+<h3>Semantic Similarity ≠ Factuality</h3>
+<h3>Groundedness ≠ World Truth</h3>
+<h3>LLM Judge ≠ Ground Truth</h3>
+<h3>Benchmark Score ≠ Deployment Performance</h3>
+<h3>Best-of-N ≠ Typical User Experience</h3>
+<h3>More Metrics ≠ More Independent Evidence</h3>
+<h3>One Score ≠ LLM Trust</h3>
+<blockquote>LLM evaluation is not the search for one perfect metric. It is the construction of evidence that a generative system satisfies the requirements of its intended use.</blockquote>
+<p>The scientific questions are:</p>
+<h3>What exactly are we evaluating?</h3>
+<h3>What behaviour is required?</h3>
+<h3>What constitutes failure?</h3>
+<h3>Which measurements validly represent those requirements?</h3>
+<h3>Who or what judges the output?</h3>
+<h3>How reliable is that judge?</h3>
+<h3>What uncertainty surrounds the score?</h3>
+<h3>Does the benchmark represent deployment?</h3>
+<h3>Is the benchmark contaminated?</h3>
+<h3>How does the system behave under repetition and stress?</h3>
+<h3>Which failures are hidden by the average?</h3>
+<h3>Does the evidence remain valid after the model, prompt, corpus or environment changes?</h3>
+<p>OpenVals principle:</p>
+<blockquote>A metric is a number. LLM trust requires an evidence system.</blockquote>
+<h2>Next Episode</h2>
+<p>Episode 18 — LLM Hallucination, Factuality, and Groundedness: How Do We Measure Whether Generative AI Is Telling the Truth?</p>
+<p>Episode 18 can go deeper into atomic claim extraction, entailment, contradiction, source attribution, citation validation, retrieval-grounded generation, unsupported-claim rates, factual precision/recall, uncertainty, abstention, knowledge boundaries and hallucination under distribution shift.</p>
+</body></html>
