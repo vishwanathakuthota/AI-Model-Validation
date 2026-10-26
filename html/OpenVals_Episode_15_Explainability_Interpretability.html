@@ -1,0 +1,258 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Episode 15 — Explainability and Interpretability</title><meta name="description" content="AI Model Validation Episode 15: interpretability, explainability, permutation importance, partial dependence, Shapley values, counterfactuals, stability and faithfulness."><meta name="author" content="Vishwanath Akuthota"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;max-width:1000px;margin:42px auto;padding:0 28px;line-height:1.72;color:#202124}h1{font-size:2.35rem}h2{margin-top:2.5rem;border-bottom:1px solid #eee;padding-bottom:.3rem}h3{font-family:Georgia,serif;text-align:center;font-size:1.22rem}pre{background:#f6f8fa;padding:18px;border-radius:8px;overflow:auto}blockquote{border-left:4px solid #555;padding:9px 19px;background:#fafafa;margin-left:0}</style></head><body>
+<h1>AI Model Validation: From Mathematics to Trust</h1>
+<h2>Episode 15 — Explainability and Interpretability: Can We Understand Why the Model Made This Decision?</h2>
+<p>Author: Vishwanath Akuthota</p>
+<p>Founder of DrPinnacle, OpenVals and The Foundry&#x27;s</p>
+<blockquote>A plausible explanation is not necessarily a faithful explanation.</blockquote>
+<p>Scientific chain:</p>
+<h3>Model → Prediction → Explanation Method → Attribution → Perturbation Test → Stability → Faithfulness → Human Interpretation → Evidence → Trust Decision</h3>
+<pre><code>import numpy as np
+import matplotlib.pyplot as plt
+import itertools, math, platform, sys
+rng=np.random.default_rng(1515)
+print(&quot;Python:&quot;,sys.version.split()[0],&quot;| NumPy:&quot;,np.__version__,&quot;|&quot;,platform.system(),platform.machine())
+</code></pre>
+<h2>1. Interpretability and Explainability</h2>
+<p>Interpretability concerns how directly humans can understand a model mechanism. Explainability often uses methods to describe behaviour of complex models.</p>
+<h3>Interpretable Model ≠ Post-Hoc Explanation</h3>
+<h2>2. Prediction Is Not Explanation</h2>
+<p>A model produces:</p>
+<h3>ŷ=f(x)</h3>
+<p>An explanation method produces:</p>
+<h3>e=E(f,x)</h3>
+<p>Therefore the explanation is another computational object that must itself be validated.</p>
+<h3>Explanation ≠ Model</h3>
+<h2>3. Global, Local, Counterfactual</h2>
+<p>Global: How does the model behave overall?</p>
+<p>Local: Why did it behave this way for this case?</p>
+<p>Counterfactual: What feasible change would alter the decision?</p>
+<p>These questions are not interchangeable.</p>
+<h2>4. Linear Interpretability</h2>
+<p>For:</p>
+<h3>f(x)=β₀+Σ_jβ_jx_j</h3>
+<p>the local derivative is:</p>
+<h3>∂f/∂x_j=β_j</h3>
+<p>Yet coefficient magnitude depends on feature scale and does not establish causal importance.</p>
+<h2>5. Association Is Not Causation</h2>
+<p>If the model depends strongly on X_j, it does not follow that intervening on X_j causes Y to change.</p>
+<h3>Feature Attribution ≠ Causal Effect</h3>
+<h2>6. Global Feature Importance</h2>
+<p>Global importance can use coefficients, permutation, sensitivity, split importance, or aggregated local attributions.</p>
+<h3>Feature Importance Is Method-Dependent</h3>
+<h2>7. Permutation Importance</h2>
+<p>With baseline loss L_base and loss after permuting feature j:</p>
+<h3>I_j=L_perm,j−L_base</h3>
+<p>Large degradation means the model relied on information destroyed by that perturbation.</p>
+<pre><code>N=5000
+X=rng.normal(0,1,(N,3))
+y=3*X[:,0]-1.5*X[:,1]+.2*X[:,2]+rng.normal(0,.5,N)
+def model(Z): return 3*Z[:,0]-1.5*Z[:,1]+.2*Z[:,2]
+def mse(a,b): return np.mean((a-b)**2)
+base=mse(y,model(X))
+imp=[]
+for j in range(3):
+    Z=X.copy(); Z[:,j]=rng.permutation(Z[:,j])
+    imp.append(mse(y,model(Z))-base)
+print(&quot;Baseline MSE:&quot;,base,&quot;Importance:&quot;,imp)
+plt.figure(figsize=(7,4)); plt.bar([&quot;X1&quot;,&quot;X2&quot;,&quot;X3&quot;],imp)
+plt.ylabel(&quot;Increase in MSE&quot;); plt.title(&quot;Permutation Importance&quot;); plt.grid(axis=&quot;y&quot;,alpha=.2); plt.show()
+</code></pre>
+<h2>8. Correlated Features</h2>
+<p>Independent permutation can create implausible combinations when features are correlated and can misallocate importance among substitutes.</p>
+<h3>Perturbation Validity Matters</h3>
+<h2>9. Partial Dependence</h2>
+<p>For feature j:</p>
+<h3>PD_j(z)=E_X[f(z,X_−j)]</h3>
+<p>It averages predictions after fixing feature j to z. It describes model behaviour—not causal effect.</p>
+<h2>10. Individual Conditional Expectation</h2>
+<p>For observation i:</p>
+<h3>ICE_i,j(z)=f(z,x_i,−j)</h3>
+<p>and:</p>
+<h3>PD_j(z)=1/n Σ_i ICE_i,j(z)</h3>
+<p>ICE can expose heterogeneous responses hidden by averages.</p>
+<pre><code>def nonlinear(Z): return np.sin(Z[:,0])+.5*Z[:,1]**2+.4*Z[:,0]*Z[:,1]
+Xn=rng.normal(0,1,(3000,2)); grid=np.linspace(-3,3,100)
+pd=[]
+for z in grid:
+    Z=Xn.copy(); Z[:,0]=z; pd.append(nonlinear(Z).mean())
+plt.figure(figsize=(8,5)); plt.plot(grid,pd)
+plt.xlabel(&quot;X1 fixed value&quot;); plt.ylabel(&quot;Average prediction&quot;); plt.title(&quot;Partial Dependence&quot;); plt.grid(alpha=.25); plt.show()
+</code></pre>
+<h2>11. Local Sensitivity</h2>
+<p>For differentiable f:</p>
+<h3>f(x+δ)≈f(x)+∇f(x)ᵀδ</h3>
+<p>Gradient magnitude measures local sensitivity.</p>
+<h3>Sensitivity ≠ Semantic Importance</h3>
+<h2>12. Gradient × Input</h2>
+<p>A simple attribution is:</p>
+<h3>a_j=x_j∂f(x)/∂x_j</h3>
+<p>It depends on representation and baseline conventions.</p>
+<h2>13. Local Surrogate Explanations</h2>
+<p>Approximate f near x₀ using simpler g:</p>
+<h3>minimize_g Σ_i π_x₀(z_i)[f(z_i)−g(z_i)]²+Ω(g)</h3>
+<p>The surrogate explains its approximation to f.</p>
+<h3>Simplicity ≠ Faithfulness</h3>
+<h2>14. Surrogate Fidelity</h2>
+<p>Explanation quality should include approximation error between f and g in the claimed neighborhood. A simple but inaccurate surrogate is not a trustworthy explanation.</p>
+<h2>15. Neighborhood Dependence</h2>
+<p>Local explanations depend on perturbation distribution, distance, kernel width, representation, and neighborhood size.</p>
+<h3>Local Explanation = Model + Method + Neighborhood</h3>
+<h2>16. Shapley-Value Foundation</h2>
+<p>For feature set N and feature j:</p>
+<h3>φ_j=Σ_(S⊆N\{j}) [|S|!(|N|−|S|−1)!/|N|!]·[v(S∪{j})−v(S)]</h3>
+<p>Shapley values average marginal contribution across feature coalitions.</p>
+<h2>17. The Value Function Matters</h2>
+<p>The explanation must define what it means for features to be absent through a value function v(S), background distribution, conditional or marginal expectation, and masking semantics.</p>
+<h3>Shapley Formula Alone Does Not Define the Explanation</h3>
+<pre><code>beta=np.array([2.,-1.2,.5]); x=np.array([1.5,2.,-1.]); d=3
+def value(S): return sum(beta[j]*x[j] for j in S)
+def shap(j):
+    others=[i for i in range(d) if i!=j]; total=0.
+    for r in range(len(others)+1):
+        for S in itertools.combinations(others,r):
+            w=math.factorial(r)*math.factorial(d-r-1)/math.factorial(d)
+            total+=w*(value(set(S)|{j})-value(set(S)))
+    return total
+phi=np.array([shap(j) for j in range(d)])
+print(&quot;Shapley:&quot;,phi,&quot;| beta*x:&quot;,beta*x,&quot;| sum:&quot;,phi.sum())
+</code></pre>
+<h2>18. Shapley Efficiency</h2>
+<p>A defining property is:</p>
+<h3>Σ_jφ_j=v(N)−v(∅)</h3>
+<p>This accounting identity does not establish causal truth.</p>
+<h2>19. Reference Population</h2>
+<p>Under a common expectation-based linear interpretation:</p>
+<h3>φ_j=β_j(x_j−E[X_j])</h3>
+<p>Changing the reference population changes attribution.</p>
+<h3>Explanation Depends on Reference Population</h3>
+<h2>20. Correlation and Attribution</h2>
+<p>With correlated features, marginal and conditional explanations can allocate credit differently.</p>
+<h3>Attribution Is Conditional on Explanation Assumptions</h3>
+<h2>21. Counterfactual Explanation</h2>
+<p>Find a nearby feasible point producing a desired output:</p>
+<h3>x*=argmin_z d(x,z) subject to f(z)=y*</h3>
+<p>Counterfactual explanation asks what would need to differ in the model input for the decision to change.</p>
+<h2>22. Linear Counterfactual</h2>
+<p>For linear score f(x)=wᵀx+b, the minimum L2 displacement to the zero decision boundary is:</p>
+<h3>δ*=−f(x)w/||w||²</h3>
+<p>This is geometry, not causality.</p>
+<pre><code>w=np.array([1.5,-.8]); b=-.4; x0=np.array([-.2,.5])
+s=x0@w+b; delta=-s*w/(w@w); xcf=x0+delta
+print(&quot;Original score:&quot;,s)
+print(&quot;Boundary point:&quot;,xcf)
+print(&quot;Boundary score:&quot;,xcf@w+b)
+print(&quot;Distance:&quot;,np.linalg.norm(delta))
+</code></pre>
+<h2>23. Counterfactual Feasibility</h2>
+<p>Counterfactuals should respect immutable attributes, physical bounds, discrete values, causal dependencies, actionability, cost, and time.</p>
+<h3>Minimal Mathematical Change ≠ Feasible Human Action</h3>
+<h2>24. Counterfactuals Are Not Causal Advice</h2>
+<p>Changing a model input and flipping a decision does not prove that changing that variable in reality causes the desired outcome.</p>
+<h3>Model Counterfactual ≠ Causal Intervention</h3>
+<h2>25. Explanation Stability</h2>
+<p>For nearby x and x&#x27;:</p>
+<h3>Stability=d_E(E(f,x),E(f,x&#x27;))/d_X(x,x&#x27;)</h3>
+<p>Large explanation changes under tiny meaningful input changes can make explanations unreliable.</p>
+<h2>26. Repeatability</h2>
+<p>Sampling- or optimization-based explanation methods can vary across repeated runs. Explanation randomness should be measured and reported.</p>
+<h2>27. Faithfulness</h2>
+<p>A faithful explanation accurately reflects the model behaviour it claims to describe. Claimed important features can be perturbed and the actual prediction response measured.</p>
+<h2>28. Deletion Test</h2>
+<p>Let S_k be the top-k attributed features. Replace them with a stated baseline and measure:</p>
+<h3>D(k)=|f(x)−f(x with S_k replaced)|</h3>
+<p>Large meaningful changes can support the ranking, subject to perturbation validity.</p>
+<pre><code>beta=np.array([2.,-1.2,.5,.1]); x=np.array([1.5,2.,-1.,3.])
+order=np.argsort(-np.abs(beta*x)); original=.7+x@beta; drops=[]
+for k in range(1,5):
+    z=x.copy(); z[order[:k]]=0; drops.append(abs(original-(.7+z@beta)))
+plt.figure(figsize=(7,4)); plt.plot(range(1,5),drops,marker=&quot;o&quot;)
+plt.xlabel(&quot;Top-k features removed&quot;); plt.ylabel(&quot;|Prediction change|&quot;)
+plt.title(&quot;Deletion-Style Faithfulness Test&quot;); plt.grid(alpha=.25); plt.show()
+</code></pre>
+<h2>29. Insertion Test</h2>
+<p>Start from a baseline and restore features in explanation-ranked order. Rapid recovery can support the ranking. Deletion and insertion are diagnostics, not universal proofs.</p>
+<h2>30. Sanity Checks</h2>
+<p>If model parameters are randomized, model-specific explanations should materially change. If an explanation survives destruction of learned parameters, it may reflect input structure rather than learned logic.</p>
+<h3>Attractive Heatmap ≠ Model-Specific Explanation</h3>
+<h2>31. No Universal Ground-Truth Explanation</h2>
+<p>For complex models, explanation validation often evaluates fidelity, stability, sensitivity, completeness, consistency, plausibility, and human usefulness. These properties are distinct.</p>
+<h2>32. Plausibility Versus Faithfulness</h2>
+<p>Humans may prefer familiar narratives.</p>
+<h3>Human-Plausible Explanation ≠ Faithful Model Explanation</h3>
+<p>Persuasiveness is not scientific validation.</p>
+<h2>33. Completeness</h2>
+<p>Some additive methods satisfy:</p>
+<h3>f(x)−f(x_ref)=Σ_j a_j</h3>
+<p>This is an accounting constraint, not a causal guarantee.</p>
+<h2>34. Sparsity</h2>
+<p>Humans often prefer few reasons:</p>
+<h3>||a||₀ = number of nonzero attributions</h3>
+<p>But sparsity can hide interactions.</p>
+<h3>Simpler Explanation ≠ More Complete Explanation</h3>
+<h2>35. Feature Interactions</h2>
+<p>For:</p>
+<h3>f(x₁,x₂)=x₁x₂</h3>
+<p>neither feature has a fixed standalone contribution independent of the other. Attribution requires an allocation convention.</p>
+<pre><code>grid=np.linspace(-2,2,100)
+X1,X2=np.meshgrid(grid,grid); Z=X1*X2
+plt.figure(figsize=(7,5)); plt.contourf(X1,X2,Z,levels=30)
+plt.xlabel(&quot;X1&quot;); plt.ylabel(&quot;X2&quot;); plt.title(&quot;Interaction Surface: X1 × X2&quot;); plt.colorbar(label=&quot;Prediction&quot;); plt.show()
+</code></pre>
+<h2>36. Global vs Local</h2>
+<p>A feature with low average importance can dominate a narrow high-risk region.</p>
+<h3>Global Importance ≠ Local Importance</h3>
+<p>Likewise, a local explanation at x₀ should not be generalized to a population without evidence.</p>
+<h2>37. Explanation Drift</h2>
+<p>Under changing deployment populations, the distribution of explanations can change:</p>
+<h3>E_t₀ vs E_t₁</h3>
+<p>Explanation drift is an investigation signal, not proof of causal change.</p>
+<h2>38. Subgroup Explanations</h2>
+<p>Compare explanation behaviour conditionally:</p>
+<h3>E[E(f,X)|G=A] vs E[E(f,X)|G=B]</h3>
+<p>Interpretation must account for different feature distributions and sample sizes.</p>
+<h2>39. Explainability and Fairness</h2>
+<p>Background choice, sparse subgroup data, correlation, representation, and neighborhood construction can make explanation methods behave differently across groups.</p>
+<h3>Fair Model Evaluation Requires Explanation-Method Evaluation</h3>
+<h2>40. Explainability and Safety</h2>
+<p>Explanations can support failure investigation, human review, incident analysis, control verification, and auditability. They do not replace direct safety, reliability, robustness, or performance evidence.</p>
+<h2>41. Transparency, Privacy, Security</h2>
+<p>Detailed explanations may reveal sensitive data, model behaviour, intellectual property, or attack-relevant information. Explanation exposure is a system-design decision.</p>
+<h2>42. Human Evaluation</h2>
+<p>Measure comprehension, decision quality, time to understand, error detection, over-trust, and appropriate reliance—not merely whether users like the explanation.</p>
+<h2>43. Explanations Can Increase Over-Trust</h2>
+<p>A polished explanation can make a wrong prediction feel justified. Compare human decisions with and without explanations and test whether appropriate reliance improves.</p>
+<h2>44. Explanation Validation Matrix</h2>
+<p>Record scope, target, baseline, perturbation semantics, fidelity, stability, repeatability, completeness, sparsity, correlation sensitivity, causal limitations, human usefulness, and privacy/security implications.</p>
+<h2>45. OpenVals Perspective</h2>
+<p>A validation platform should preserve explanation method/version, model/version, target prediction, reference data, perturbation distribution, attributions, surrogate fidelity, stability, repeatability, deletion/insertion evidence, sanity checks, subgroup behaviour, explanation drift, counterfactual feasibility, causal limitations, and human-evaluation evidence.</p>
+<p>The stronger question is:</p>
+<h3>What evidence shows that these explanations faithfully represent the model behaviour they claim to explain?</h3>
+<h2>46. Scientific Explainability Chain</h2>
+<h3>Model → Prediction → Explanation Method → Attribution → Perturbation Test → Stability → Faithfulness → Human Interpretation → Evidence → Trust Decision</h3>
+<p>Explainability becomes an object of validation rather than a decorative AI layer.</p>
+<h2>47. Mathematical Summary</h2>
+<h3>ŷ=f(x)</h3>
+<h3>e=E(f,x)</h3>
+<h3>I_j=L_perm,j−L_base</h3>
+<h3>PD_j(z)=E_X[f(z,X_−j)]</h3>
+<h3>ICE_i,j(z)=f(z,x_i,−j)</h3>
+<h3>f(x+δ)≈f(x)+∇f(x)ᵀδ</h3>
+<h3>a_j=x_j∂f/∂x_j</h3>
+<h3>φ_j=Σ_(S⊆N\{j})w(S)[v(S∪{j})−v(S)]</h3>
+<h3>Σ_jφ_j=v(N)−v(∅)</h3>
+<h3>x*=argmin_z d(x,z) subject to f(z)=y*</h3>
+<h3>Stability=d_E(E(f,x),E(f,x&#x27;))/d_X(x,x&#x27;)</h3>
+<h3>Completeness: f(x)−f(x_ref)=Σ_j a_j</h3>
+<h2>48. Central Conclusion</h2>
+<h3>Prediction ≠ Explanation</h3>
+<h3>Attribution ≠ Causation</h3>
+<h3>Plausibility ≠ Faithfulness</h3>
+<h3>Simplicity ≠ Truth</h3>
+<h3>Explanation Availability ≠ Explanation Validity</h3>
+<blockquote>An explanation should be trusted only to the extent that evidence shows it faithfully represents the model behaviour it claims to explain.</blockquote>
+<p>This gives OpenVals another core principle:</p>
+<blockquote>Explainability itself must be validated.</blockquote>
+<h2>Next Episode</h2>
+<p>Episode 16 — Consistency, Reproducibility, and Variance: Will the AI Give Us the Same Quality Again?</p>
+<p>Episode 16 can develop repeated-run variance, stochastic inference, seeds, temperature, inter-run agreement, variance decomposition, confidence intervals, reproducibility, prompt sensitivity, model-version variability, and why a single successful run is weak evidence.</p>
+</body></html>

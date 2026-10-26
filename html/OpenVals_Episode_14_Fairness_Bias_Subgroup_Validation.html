@@ -1,0 +1,540 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Episode 14 — Fairness, Bias, and Subgroup Validation</title><meta name="description" content="AI Model Validation Episode 14: fairness, bias, subgroup validation, demographic parity, equal opportunity, equalized odds, predictive parity, calibration, intersectionality and uncertainty."><meta name="author" content="Vishwanath Akuthota"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;max-width:1000px;margin:42px auto;padding:0 28px;line-height:1.72;color:#202124}h1{font-size:2.35rem;line-height:1.18}h2{margin-top:2.5rem;border-bottom:1px solid #eee;padding-bottom:.3rem}h3{font-family:Georgia,serif;text-align:center;font-size:1.23rem;margin:22px 0}pre{background:#f6f8fa;padding:18px;border-radius:8px;overflow:auto}blockquote{border-left:4px solid #555;padding:9px 19px;background:#fafafa;margin-left:0}</style></head><body>
+<h1>AI Model Validation: From Mathematics to Trust</h1>
+<h2>Episode 14 — Fairness, Bias, and Subgroup Validation: When Aggregate Performance Hides Unequal Failure</h2>
+<p>Author: Vishwanath Akuthota</p>
+<p>Founder of DrPinnacle, OpenVals and The Foundry&#x27;s</p>
+<p>Episode 13 connected technical failure to consequence. Episode 14 asks:</p>
+<blockquote>Can a model look successful overall while systematically failing some populations more than others?</blockquote>
+<p>Yes. Aggregate metrics can conceal large subgroup differences.</p>
+<p>But fairness is not simply another metric to maximize. Different mathematical fairness definitions encode different normative goals, and several cannot generally be satisfied simultaneously when base rates differ.</p>
+<p>Central principle:</p>
+<blockquote>Fairness is not the absence of metric differences. It is evidence that model behaviour, error, access, and consequence have been examined across relevant populations in the context of intended use.</blockquote>
+<p>Scientific chain:</p>
+<h3>Population → Subgroup → Outcome → Decision → Error → Disparity → Uncertainty → Consequence → Fairness Criterion → Evidence → Governance Decision</h3>
+<pre><code>import numpy as np
+import matplotlib.pyplot as plt
+import platform, sys
+
+rng=np.random.default_rng(1414)
+print(&quot;Python :&quot;,sys.version.split()[0])
+print(&quot;System :&quot;,platform.system(),platform.release())
+print(&quot;Machine:&quot;,platform.machine())
+print(&quot;NumPy  :&quot;,np.__version__)
+</code></pre>
+<h2>1. Aggregate Performance Can Hide Unequal Failure</h2>
+<p>Suppose overall accuracy is:</p>
+<h3>Accuracy = P(Ŷ=Y)</h3>
+<p>This does not tell us:</p>
+<h3>P(Ŷ=Y | G=A)</h3>
+<p>or:</p>
+<h3>P(Ŷ=Y | G=B)</h3>
+<p>where G identifies a relevant subgroup.</p>
+<h3>Strong Aggregate Metric ≠ Uniform Subgroup Performance</h3>
+<h2>2. Controlled Example</h2>
+<p>We construct two synthetic groups with different outcome prevalence and different score quality.</p>
+<p>The purpose is not to represent any real demographic population. It is a mathematical laboratory for understanding subgroup metrics.</p>
+<pre><code>nA,nB=8000,2000
+g=np.array([&quot;A&quot;]*nA+[&quot;B&quot;]*nB)
+
+yA=rng.binomial(1,.45,nA)
+yB=rng.binomial(1,.25,nB)
+y=np.concatenate([yA,yB])
+
+scoreA=np.clip(.18+.62*yA+rng.normal(0,.20,nA),0,1)
+scoreB=np.clip(.25+.45*yB+rng.normal(0,.27,nB),0,1)
+score=np.concatenate([scoreA,scoreB])
+pred=(score&gt;=.5).astype(int)
+
+def metrics(y,p):
+    tp=np.sum((y==1)&amp;(p==1)); fn=np.sum((y==1)&amp;(p==0))
+    fp=np.sum((y==0)&amp;(p==1)); tn=np.sum((y==0)&amp;(p==0))
+    acc=(tp+tn)/len(y)
+    tpr=tp/(tp+fn) if tp+fn else np.nan
+    fpr=fp/(fp+tn) if fp+tn else np.nan
+    ppv=tp/(tp+fp) if tp+fp else np.nan
+    sel=(tp+fp)/len(y)
+    return dict(N=len(y),TP=tp,FN=fn,FP=fp,TN=tn,
+                accuracy=acc,TPR=tpr,FPR=fpr,PPV=ppv,selection=sel)
+
+print(&quot;Overall:&quot;,metrics(y,pred))
+for group in [&quot;A&quot;,&quot;B&quot;]:
+    z=g==group
+    print(group,metrics(y[z],pred[z]))
+</code></pre>
+<h2>3. Subgroup Confusion Matrices</h2>
+<p>For each group g, preserve:</p>
+<h3>TP_g, FN_g, FP_g, TN_g</h3>
+<p>Every threshold-dependent fairness metric is ultimately related to how these counts differ across groups.</p>
+<p>A single overall confusion matrix can hide subgroup-specific error structures.</p>
+<h2>4. Group-Conditioned Accuracy</h2>
+<h3>Accuracy_g = P(Ŷ=Y | G=g)</h3>
+<p>Accuracy parity would require approximately:</p>
+<h3>Accuracy_A ≈ Accuracy_B</h3>
+<p>But equal accuracy does not imply equal false-negative rates, false-positive rates, access, calibration, or consequences.</p>
+<h3>Equal Accuracy ≠ Equal Error Structure</h3>
+<h2>5. Selection Rate</h2>
+<p>For group g:</p>
+<h3>SelectionRate_g = P(Ŷ=1 | G=g)</h3>
+<p>A demographic-parity-style criterion asks for:</p>
+<h3>P(Ŷ=1 | G=A) = P(Ŷ=1 | G=B)</h3>
+<p>This concerns decision rates, not whether the decisions are correct.</p>
+<h2>6. Demographic Parity Difference</h2>
+<p>For two groups:</p>
+<h3>Δ_DP = P(Ŷ=1|A) − P(Ŷ=1|B)</h3>
+<p>A value near zero indicates similar positive-decision rates.</p>
+<p>It does not establish equal opportunity, equal error rates, calibration, or equal harm.</p>
+<pre><code>mA=metrics(y[g==&quot;A&quot;],pred[g==&quot;A&quot;])
+mB=metrics(y[g==&quot;B&quot;],pred[g==&quot;B&quot;])
+dp=mA[&quot;selection&quot;]-mB[&quot;selection&quot;]
+print(&quot;Selection A:&quot;,mA[&quot;selection&quot;])
+print(&quot;Selection B:&quot;,mB[&quot;selection&quot;])
+print(&quot;Demographic parity difference A-B:&quot;,dp)
+</code></pre>
+<h2>7. Selection-Rate Ratio</h2>
+<p>A ratio form is:</p>
+<h3>SR_ratio = P(Ŷ=1|A) / P(Ŷ=1|B)</h3>
+<p>Ratios and differences answer different questions and can behave differently when rates are small.</p>
+<p>A numerical ratio should not be treated as a universal legal or ethical verdict without domain-specific interpretation.</p>
+<h2>8. Equal Opportunity</h2>
+<p>True-positive rate for group g:</p>
+<h3>TPR_g = P(Ŷ=1 | Y=1,G=g)</h3>
+<p>An equal-opportunity criterion requires:</p>
+<h3>TPR_A = TPR_B</h3>
+<p>This focuses on people/cases that truly belong to the positive outcome class.</p>
+<p>Whether this is the relevant fairness criterion depends on the decision context.</p>
+<h2>9. Equalized Odds</h2>
+<p>Equalized odds requires both:</p>
+<h3>P(Ŷ=1 | Y=1,G=A) = P(Ŷ=1 | Y=1,G=B)</h3>
+<p>and:</p>
+<h3>P(Ŷ=1 | Y=0,G=A) = P(Ŷ=1 | Y=0,G=B)</h3>
+<p>That is:</p>
+<h3>TPR_A = TPR_B</h3>
+<p>and:</p>
+<h3>FPR_A = FPR_B</h3>
+<p>It aligns error rates conditional on the true outcome.</p>
+<pre><code>print(&quot;TPR gap A-B:&quot;,mA[&quot;TPR&quot;]-mB[&quot;TPR&quot;])
+print(&quot;FPR gap A-B:&quot;,mA[&quot;FPR&quot;]-mB[&quot;FPR&quot;])
+</code></pre>
+<h2>10. Predictive Parity</h2>
+<p>Positive predictive value:</p>
+<h3>PPV_g = P(Y=1 | Ŷ=1,G=g)</h3>
+<p>Predictive parity asks:</p>
+<h3>PPV_A = PPV_B</h3>
+<p>It concerns the meaning of a positive prediction across groups.</p>
+<p>This is different from equal opportunity, which conditions on the true positive class rather than predicted positives.</p>
+<pre><code>print(&quot;PPV A:&quot;,mA[&quot;PPV&quot;])
+print(&quot;PPV B:&quot;,mB[&quot;PPV&quot;])
+print(&quot;PPV gap:&quot;,mA[&quot;PPV&quot;]-mB[&quot;PPV&quot;])
+</code></pre>
+<h2>11. Base Rates Matter</h2>
+<p>For group g, prevalence is:</p>
+<h3>π_g = P(Y=1 | G=g)</h3>
+<p>Using Bayes&#x27; rule:</p>
+<h3>PPV_g = TPR_g π_g / [TPR_g π_g + FPR_g(1−π_g)]</h3>
+<p>Therefore, even if two groups have equal TPR and FPR, different prevalence can produce different PPV.</p>
+<p>This is a mathematical constraint, not merely an implementation bug.</p>
+<pre><code>tpr=.8
+fpr=.1
+for prevalence in [.05,.10,.25,.50,.75]:
+    ppv=tpr*prevalence/(tpr*prevalence+fpr*(1-prevalence))
+    print(f&quot;Prevalence={prevalence:.0%} -&gt; PPV={ppv:.3f}&quot;)
+</code></pre>
+<h2>12. Fairness Criteria Can Conflict</h2>
+<p>When base rates differ and prediction is imperfect, several desirable fairness conditions cannot generally all hold simultaneously.</p>
+<p>For example, equalized error rates and predictive parity can conflict.</p>
+<h3>Fairness Metric Selection Is a Normative Decision Informed by Mathematics</h3>
+<p>Mathematics can expose trade-offs.</p>
+<p>It cannot decide society&#x27;s values by itself.</p>
+<h2>13. Fairness Is Not One Number</h2>
+<p>Possible questions include:</p>
+<h3>Are positive-decision rates similar?</h3>
+<h3>Are qualified/positive cases recognized equally?</h3>
+<h3>Are false alarms similar?</h3>
+<h3>Does a positive prediction mean the same thing?</h3>
+<h3>Are probabilities calibrated?</h3>
+<h3>Are harms distributed acceptably?</h3>
+<h3>Is access equitable?</h3>
+<h3>Are errors concentrated intersectionally?</h3>
+<p>Different questions produce different metrics.</p>
+<h2>14. Thresholds Change Fairness Metrics</h2>
+<p>For score s(x) and threshold τ:</p>
+<h3>Ŷ_τ = 1[s(x)≥τ]</h3>
+<p>Then subgroup TPR, FPR, PPV and selection rate are all functions of τ.</p>
+<h3>Fairness Metric = Function of Decision Policy</h3>
+<p>A model cannot be separated from the threshold policy used in deployment.</p>
+<pre><code>thresholds=np.linspace(.1,.9,81)
+tpr_gap=[]; fpr_gap=[]; sel_gap=[]
+for t in thresholds:
+    p=(score&gt;=t).astype(int)
+    a=metrics(y[g==&quot;A&quot;],p[g==&quot;A&quot;])
+    b=metrics(y[g==&quot;B&quot;],p[g==&quot;B&quot;])
+    tpr_gap.append(a[&quot;TPR&quot;]-b[&quot;TPR&quot;])
+    fpr_gap.append(a[&quot;FPR&quot;]-b[&quot;FPR&quot;])
+    sel_gap.append(a[&quot;selection&quot;]-b[&quot;selection&quot;])
+
+plt.figure(figsize=(9,5))
+plt.plot(thresholds,tpr_gap,label=&quot;TPR gap&quot;)
+plt.plot(thresholds,fpr_gap,label=&quot;FPR gap&quot;)
+plt.plot(thresholds,sel_gap,label=&quot;Selection-rate gap&quot;)
+plt.axhline(0,linewidth=1)
+plt.xlabel(&quot;Threshold&quot;)
+plt.ylabel(&quot;Group A − Group B&quot;)
+plt.title(&quot;Fairness Metrics Change With Threshold&quot;)
+plt.legend()
+plt.grid(alpha=.25)
+plt.show()
+</code></pre>
+<h2>15. Group-Specific Thresholds</h2>
+<p>One possible intervention is to use different thresholds by group.</p>
+<p>This can reduce one disparity while increasing another.</p>
+<p>It can also raise legal, ethical, governance, operational, or policy questions depending on jurisdiction and use case.</p>
+<h3>Mathematical Feasibility ≠ Automatic Acceptability</h3>
+<h2>16. Calibration Across Groups</h2>
+<p>For group g, ideal calibration requires:</p>
+<h3>P(Y=1 | p̂=p,G=g) = p</h3>
+<p>If both groups receive predictions around 0.7, approximately 70% should experience the positive outcome in each group under ideal groupwise calibration.</p>
+<p>Calibration concerns probability meaning, not equal decision rates.</p>
+<h2>17. Calibration and Error-Rate Parity Can Conflict</h2>
+<p>When groups have different base rates, a calibrated imperfect score generally cannot also satisfy every error-rate parity criterion simultaneously.</p>
+<p>This is why fairness validation must state which property is being targeted and why.</p>
+<h3>No Universal Fairness Metric Solves Every Context</h3>
+<h2>18. Reliability Diagrams by Group</h2>
+<p>Calibration should be examined separately where subgroup sample sizes support it.</p>
+<p>Sparse bins can create noisy apparent disparities.</p>
+<p>The uncertainty of subgroup calibration is part of the result.</p>
+<pre><code>def calibration_points(y,p,bins=8):
+    edges=np.linspace(0,1,bins+1)
+    xs=[]; ys=[]; ns=[]
+    for i in range(bins):
+        z=(p&gt;=edges[i]) &amp; (p&lt;(edges[i+1] if i&lt;bins-1 else edges[i+1]+1e-12))
+        if z.sum():
+            xs.append(p[z].mean()); ys.append(y[z].mean()); ns.append(z.sum())
+    return np.array(xs),np.array(ys),np.array(ns)
+
+plt.figure(figsize=(7,6))
+for group in [&quot;A&quot;,&quot;B&quot;]:
+    z=g==group
+    xcal,ycal,ncal=calibration_points(y[z],score[z])
+    plt.plot(xcal,ycal,marker=&quot;o&quot;,label=f&quot;Group {group}&quot;)
+plt.plot([0,1],[0,1],linestyle=&quot;--&quot;,label=&quot;Ideal&quot;)
+plt.xlabel(&quot;Mean predicted probability&quot;)
+plt.ylabel(&quot;Observed outcome frequency&quot;)
+plt.title(&quot;Groupwise Calibration&quot;)
+plt.legend()
+plt.grid(alpha=.25)
+plt.show()
+</code></pre>
+<h2>19. Subgroup Sample Size</h2>
+<p>If subgroup g has n_g observations, metric uncertainty depends on n_g.</p>
+<p>For a binomial proportion p̂_g:</p>
+<h3>SE(p̂_g) ≈ √[p̂_g(1−p̂_g)/n_g]</h3>
+<p>Small groups can have large uncertainty.</p>
+<h3>Small Observed Gap ≠ Proven Equality</h3>
+<h3>Large Observed Gap ≠ Precisely Estimated Gap</h3>
+<h2>20. Confidence Interval for a Difference</h2>
+<p>For independent subgroup proportions p̂_A and p̂_B:</p>
+<h3>Δ̂ = p̂_A − p̂_B</h3>
+<p>Approximate standard error:</p>
+<h3>SE(Δ̂) = √[p̂_A(1−p̂_A)/n_A + p̂_B(1−p̂_B)/n_B]</h3>
+<p>A disparity estimate should be accompanied by uncertainty when assumptions support the approximation.</p>
+<pre><code>def diff_interval(p1,n1,p2,n2,z=1.96):
+    d=p1-p2
+    se=np.sqrt(p1*(1-p1)/n1+p2*(1-p2)/n2)
+    return d,d-z*se,d+z*se
+
+d,lo,hi=diff_interval(mA[&quot;selection&quot;],nA,mB[&quot;selection&quot;],nB)
+print(&quot;Selection-rate difference:&quot;,d)
+print(&quot;Approx. 95% interval:&quot;,(lo,hi))
+</code></pre>
+<h2>21. Rare Subgroups and Evidence Scarcity</h2>
+<p>A production population can contain small but important groups.</p>
+<p>If n_g is tiny, “no observed failures” provides weak assurance.</p>
+<p>Episode 12&#x27;s rare-event logic still applies conditionally:</p>
+<h3>p_fail,g,upper ≈ 3/n_g</h3>
+<p>when zero failures are observed under simplified independent conditions.</p>
+<h2>22. Intersectionality</h2>
+<p>Checking one attribute at a time can hide concentrated failure at intersections.</p>
+<p>If A and B are attributes:</p>
+<h3>P(F=1 | A=a,B=b)</h3>
+<p>may be much larger than either marginal:</p>
+<h3>P(F=1 | A=a)</h3>
+<p>or:</p>
+<h3>P(F=1 | B=b)</h3>
+<h3>Marginal Fairness ≠ Intersectional Fairness</h3>
+<pre><code># Synthetic illustration: two binary attributes.
+N=20000
+a=rng.integers(0,2,N)
+b=rng.integers(0,2,N)
+p_fail=np.full(N,.02)
+p_fail[(a==1)&amp;(b==1)]=.12
+fail=rng.binomial(1,p_fail)
+
+print(&quot;Overall:&quot;,fail.mean())
+for av in [0,1]:
+    print(&quot;A=&quot;,av,&quot;failure:&quot;,fail[a==av].mean())
+for bv in [0,1]:
+    print(&quot;B=&quot;,bv,&quot;failure:&quot;,fail[b==bv].mean())
+for av in [0,1]:
+    for bv in [0,1]:
+        z=(a==av)&amp;(b==bv)
+        print(f&quot;A={av}, B={bv}: N={z.sum()}, failure={fail[z].mean():.3f}&quot;)
+</code></pre>
+<h2>23. The Intersection Explosion</h2>
+<p>With many attributes and categories, the number of intersections can grow rapidly.</p>
+<p>If attribute j has c_j categories:</p>
+<h3>Number of possible intersections = Π_j c_j</h3>
+<p>This creates a statistical challenge:</p>
+<h3>More Granularity → Better Failure Localization</h3>
+<h3>More Granularity → Less Data Per Cell</h3>
+<p>Fairness validation requires a strategy for both coverage and uncertainty.</p>
+<h2>24. Multiple Comparisons</h2>
+<p>If hundreds of subgroup metrics are tested, some large differences will appear by chance.</p>
+<p>Therefore large-scale subgroup discovery may require:</p>
+<p>• multiplicity awareness</p>
+<p>• held-out confirmation</p>
+<p>• hierarchical modeling</p>
+<p>• shrinkage</p>
+<p>• replication</p>
+<p>• practical-significance criteria</p>
+<h3>Searching More Groups Increases False Discovery Opportunity</h3>
+<h2>25. Statistical Significance Is Not Fairness</h2>
+<p>A disparity can be statistically significant but operationally tiny.</p>
+<p>A disparity can be practically severe but statistically uncertain because the subgroup is small.</p>
+<h3>Statistical Significance ≠ Ethical Significance</h3>
+<h3>Statistical Non-Significance ≠ Evidence of Fairness</h3>
+<h2>26. Practical Consequence</h2>
+<p>Suppose two groups differ in false-negative rate by 2 percentage points.</p>
+<p>Whether that matters depends on:</p>
+<p>• decision stakes</p>
+<p>• number exposed</p>
+<p>• severity of missed positives</p>
+<p>• alternatives</p>
+<p>• reversibility</p>
+<p>• appeal mechanisms</p>
+<p>• historical context</p>
+<p>• legal and governance requirements</p>
+<p>Metrics require consequence context.</p>
+<h2>27. Bias Has Multiple Sources</h2>
+<p>Observed disparity can arise from:</p>
+<h3>Historical/Societal Process</h3>
+<h3>Sampling</h3>
+<h3>Measurement</h3>
+<h3>Label Definition</h3>
+<h3>Feature Construction</h3>
+<h3>Missing Data</h3>
+<h3>Model Fitting</h3>
+<h3>Threshold Policy</h3>
+<h3>Deployment</h3>
+<h3>Human Interaction</h3>
+<h3>Feedback Loops</h3>
+<h3>Model Bias ≠ Only Algorithmic Bias</h3>
+<h2>28. Sampling Bias</h2>
+<p>If evaluation data do not represent deployment:</p>
+<h3>P_eval(X,G,Y) ≠ P_deploy(X,G,Y)</h3>
+<p>then subgroup estimates may not generalize.</p>
+<p>A fairness report is only as credible as its sampling design.</p>
+<h2>29. Measurement Bias</h2>
+<p>A variable may measure different constructs or have different error properties across groups.</p>
+<p>If:</p>
+<h3>X_observed = X_true + Measurement Error</h3>
+<p>and the measurement-error distribution differs by group, model disparities can emerge even before model fitting.</p>
+<h2>30. Label Bias</h2>
+<p>Observed label Y may be an imperfect proxy for the construct of interest Y*.</p>
+<h3>Y ≠ Y*</h3>
+<p>If label error depends on group:</p>
+<h3>P(Y≠Y* | G=A) ≠ P(Y≠Y* | G=B)</h3>
+<p>then apparently “objective” performance metrics can encode unequal measurement quality.</p>
+<h2>31. Missingness Can Be Unequal</h2>
+<p>If missing-data probability differs:</p>
+<h3>P(Missing | G=A) ≠ P(Missing | G=B)</h3>
+<p>then imputation or fallback behaviour can create subgroup-specific error.</p>
+<p>Fairness validation should include data-quality metrics by group.</p>
+<h2>32. Proxy Variables</h2>
+<p>Removing a protected or sensitive attribute does not guarantee that the model cannot infer related information from correlated variables.</p>
+<h3>Attribute Removed ≠ Information Removed</h3>
+<p>This is why fairness cannot be established merely by excluding one column.</p>
+<h2>33. Fairness Through Unawareness Is Insufficient</h2>
+<p>A model can be group-blind in its explicit inputs while producing systematically different outcomes because other features encode correlated structure.</p>
+<p>Evaluation must examine outcomes and errors, not only the feature list.</p>
+<h2>34. Individual and Group Fairness</h2>
+<p>Group fairness compares statistical properties across groups.</p>
+<p>Individual fairness is often summarized conceptually as:</p>
+<blockquote>Similar individuals should be treated similarly.</blockquote>
+<p>A mathematical form can use a task-relevant distance d:</p>
+<h3>d_Y(f(x_i),f(x_j)) ≤ L·d_X(x_i,x_j)</h3>
+<p>But defining who is “similar” is itself a substantive modeling and governance decision.</p>
+<h2>35. Counterfactual Reasoning</h2>
+<p>A counterfactual fairness question asks whether a decision would change under a hypothetical change to a sensitive attribute while holding appropriate causal factors fixed.</p>
+<p>This requires a causal model.</p>
+<h3>Correlation-Based Fairness Metric ≠ Causal Fairness Evidence</h3>
+<p>Counterfactual claims should not be made without defensible causal assumptions.</p>
+<h2>36. Causal Graph Perspective</h2>
+<p>A sensitive attribute can influence:</p>
+<p>• legitimate mediators</p>
+<p>• illegitimate pathways</p>
+<p>• labels</p>
+<p>• measurements</p>
+<p>• selection into the dataset</p>
+<p>Determining which causal paths are acceptable is partly a normative and domain question.</p>
+<p>Mathematics makes assumptions explicit; it does not decide them automatically.</p>
+<h2>37. Distribution Shift and Fairness</h2>
+<p>From Episode 11:</p>
+<h3>P_t(X,Y,G) can change over time</h3>
+<p>Therefore:</p>
+<h3>Fairness_t₀ ≠ Fairness_t₁</h3>
+<p>even when the model is unchanged.</p>
+<p>Subgroup prevalence, calibration and error rates can drift independently.</p>
+<h2>38. Feedback Loops</h2>
+<p>Model decisions can change future data.</p>
+<p>Example structure:</p>
+<h3>Model Decision_t → Opportunity/Exposure_t → Observed Outcome_(t+1) → Training Data_(t+1)</h3>
+<p>This can reinforce disparities or obscure unobserved counterfactual outcomes.</p>
+<h3>Deployment Is Part of the Data-Generating Process</h3>
+<h2>39. Selective Labels</h2>
+<p>Sometimes outcomes are observed only for people/cases receiving a particular decision.</p>
+<p>Then:</p>
+<h3>Y observed only when D=1</h3>
+<p>This makes evaluation of rejected or untreated cases difficult.</p>
+<p>Naive fairness estimates can therefore be biased by the historical decision policy.</p>
+<h2>40. Fairness Under Abstention</h2>
+<p>Suppose a model can abstain.</p>
+<p>Then compare:</p>
+<h3>Coverage_g = P(Model Answers | G=g)</h3>
+<p>and:</p>
+<h3>SelectiveRisk_g = E[L | Model Answers,G=g]</h3>
+<p>A system can appear fair among answered cases while disproportionately abstaining on one group.</p>
+<h3>Equal Error Among Answers ≠ Equal Access to Answers</h3>
+<h2>41. Fairness and Harm</h2>
+<p>Metric disparity is not identical to harm disparity.</p>
+<p>A complete analysis asks:</p>
+<h3>Who receives errors?</h3>
+<h3>What type of errors?</h3>
+<h3>How often?</h3>
+<h3>With what consequence?</h3>
+<h3>Can the decision be appealed or corrected?</h3>
+<h3>Who bears the residual risk?</h3>
+<p>Episode 13&#x27;s consequence framework therefore applies directly to fairness.</p>
+<h2>42. Fairness Constraints</h2>
+<p>A model-selection problem might be written:</p>
+<h3>minimize_θ L(θ)</h3>
+<p>subject to:</p>
+<h3>|TPR_A−TPR_B| ≤ ε</h3>
+<p>and:</p>
+<h3>|FPR_A−FPR_B| ≤ δ</h3>
+<p>This is mathematically possible, but ε and δ are policy choices, not universal constants.</p>
+<h2>43. Pareto Trade-Offs</h2>
+<p>When objectives conflict, there may be no single solution that improves every metric.</p>
+<p>A policy is Pareto-dominated if another policy improves at least one objective without worsening others.</p>
+<p>Fairness-aware model selection can therefore examine a frontier across:</p>
+<h3>Utility</h3>
+<h3>TPR Gap</h3>
+<h3>FPR Gap</h3>
+<h3>Calibration</h3>
+<h3>Cost</h3>
+<h3>Safety</h3>
+<h3>One Optimum ≠ Universal Optimum</h3>
+<h2>44. Fairness Metric Gaming</h2>
+<p>Optimizing only the reported fairness metric can produce superficial compliance.</p>
+<p>Examples include:</p>
+<p>• shifting disparities to an unmeasured subgroup</p>
+<p>• equalizing rates while worsening everyone</p>
+<p>• changing thresholds without addressing data quality</p>
+<p>• improving averages while increasing severe tail harm</p>
+<h3>Metric Compliance ≠ Substantive Fairness</h3>
+<h2>45. Minimum Reporting Set</h2>
+<p>A defensible subgroup validation report should include:</p>
+<p>• intended use</p>
+<p>• group definitions and rationale</p>
+<p>• sample sizes</p>
+<p>• prevalence</p>
+<p>• confusion matrices</p>
+<p>• accuracy</p>
+<p>• TPR/recall</p>
+<p>• FPR</p>
+<p>• specificity</p>
+<p>• precision/PPV</p>
+<p>• selection rate</p>
+<p>• calibration</p>
+<p>• uncertainty intervals</p>
+<p>• intersectional results</p>
+<p>• missingness/data quality</p>
+<p>• threshold policy</p>
+<p>• consequences of FP/FN</p>
+<p>• temporal validity</p>
+<p>• known limitations</p>
+<p>The exact set should be adapted to the application.</p>
+<h2>46. Do Not Rank People by a Fairness Score</h2>
+<p>A fairness metric evaluates a system or decision process under a defined criterion.</p>
+<p>It should not become a mechanism for assigning moral worth or intrinsic value to individuals or groups.</p>
+<h3>System Evaluation ≠ Human Valuation</h3>
+<h2>47. OpenVals Perspective</h2>
+<p>A validation platform should preserve:</p>
+<p>• intended use and decision context</p>
+<p>• subgroup definitions</p>
+<p>• rationale for each fairness criterion</p>
+<p>• subgroup sample size and prevalence</p>
+<p>• subgroup confusion matrices</p>
+<p>• selection rates</p>
+<p>• TPR/FPR/FNR/TNR</p>
+<p>• predictive values</p>
+<p>• calibration</p>
+<p>• metric gaps and ratios</p>
+<p>• uncertainty</p>
+<p>• intersectional coverage</p>
+<p>• missingness and label-quality evidence</p>
+<p>• threshold policy</p>
+<p>• fairness constraints</p>
+<p>• consequences by error type</p>
+<p>• drift over time</p>
+<p>• feedback-loop risks</p>
+<p>• unresolved evidence gaps</p>
+<p>• accountable review decision</p>
+<p>The purpose is not to produce a universal Fairness Score.</p>
+<p>It is to make subgroup evidence inspectable, contextual and challengeable.</p>
+<h2>48. Scientific Fairness Chain</h2>
+<h3>Population → Subgroup → Outcome → Decision → Error → Disparity → Uncertainty → Consequence → Fairness Criterion → Evidence → Governance Decision → Monitoring</h3>
+<p>Fairness validation becomes an evidence process rather than a checkbox.</p>
+<h2>49. Mathematical Summary</h2>
+<h3>Accuracy_g=P(Ŷ=Y|G=g)</h3>
+<h3>SelectionRate_g=P(Ŷ=1|G=g)</h3>
+<h3>Δ_DP=P(Ŷ=1|A)−P(Ŷ=1|B)</h3>
+<h3>TPR_g=P(Ŷ=1|Y=1,G=g)</h3>
+<h3>FPR_g=P(Ŷ=1|Y=0,G=g)</h3>
+<h3>PPV_g=P(Y=1|Ŷ=1,G=g)</h3>
+<h3>PPV_g = TPR_gπ_g / [TPR_gπ_g + FPR_g(1−π_g)]</h3>
+<h3>Equal Opportunity: TPR_A=TPR_B</h3>
+<h3>Equalized Odds: TPR_A=TPR_B and FPR_A=FPR_B</h3>
+<h3>Predictive Parity: PPV_A=PPV_B</h3>
+<h3>Groupwise Calibration: P(Y=1|p̂=p,G=g)=p</h3>
+<h3>SE(p̂_g)≈√[p̂_g(1−p̂_g)/n_g]</h3>
+<h3>Δ̂=p̂_A−p̂_B</h3>
+<h3>SE(Δ̂)=√[p̂_A(1−p̂_A)/n_A + p̂_B(1−p̂_B)/n_B]</h3>
+<h3>p_fail,g,upper≈3/n_g  for zero observed failures under simplified assumptions</h3>
+<h3>Number of intersections=Π_j c_j</h3>
+<h3>Coverage_g=P(Model Answers|G=g)</h3>
+<h3>SelectiveRisk_g=E[L|Model Answers,G=g]</h3>
+<h2>50. Central Conclusion</h2>
+<h3>Aggregate Performance ≠ Subgroup Fairness</h3>
+<h3>Equal Accuracy ≠ Equal Error Structure</h3>
+<h3>Metric Parity ≠ Equal Harm</h3>
+<h3>Statistical Significance ≠ Ethical Significance</h3>
+<h3>Attribute Removal ≠ Bias Removal</h3>
+<h3>One Fairness Metric ≠ Universal Fairness</h3>
+<blockquote>Fairness cannot be validated by asking whether one number is equal. It requires asking which outcomes, errors, opportunities, and consequences should be comparable—and why.</blockquote>
+<p>The scientific questions are:</p>
+<h3>Which populations can be affected?</h3>
+<h3>Are they represented in the evidence?</h3>
+<h3>Where do errors concentrate?</h3>
+<h3>Are differences larger than sampling uncertainty?</h3>
+<h3>Which fairness criterion matches the decision context?</h3>
+<h3>Which criteria mathematically conflict?</h3>
+<h3>What consequences do disparities create?</h3>
+<h3>Are intersectional groups hidden by aggregate analysis?</h3>
+<h3>Can labels or measurements themselves be biased?</h3>
+<h3>Does fairness persist after deployment?</h3>
+<p>This gives OpenVals another core principle:</p>
+<blockquote>Fairness is not a universal score. It is a traceable set of claims, assumptions, measurements, uncertainties, trade-offs, and consequences that must remain visible throughout the AI lifecycle.</blockquote>
+<h2>Next Episode</h2>
+<p>Episode 15 — Explainability and Interpretability: Can We Understand Why the Model Made This Decision?</p>
+<p>Episode 15 can distinguish interpretability from post-hoc explanation, develop local and global explanations, feature attribution, permutation importance, partial dependence, Shapley-value foundations, counterfactual explanations, explanation stability, faithfulness, causal limitations, and why a plausible explanation is not automatically a true explanation.</p>
+</body></html>

@@ -1,0 +1,473 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Episode 16 — Consistency, Reproducibility, and Variance</title><meta name="description" content="AI Model Validation Episode 16: repeated-run variance, reproducibility, stochastic inference, temperature, seeds, agreement, prompt sensitivity, agent variance and evaluator variance."><meta name="author" content="Vishwanath Akuthota"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;max-width:1020px;margin:42px auto;padding:0 28px;line-height:1.72;color:#202124}h1{font-size:2.35rem;line-height:1.18}h2{margin-top:2.4rem;border-bottom:1px solid #eee;padding-bottom:.3rem}h3{font-family:Georgia,serif;text-align:center;font-size:1.22rem}pre{background:#f6f8fa;padding:18px;border-radius:8px;overflow:auto}blockquote{border-left:4px solid #555;padding:9px 19px;background:#fafafa;margin-left:0}</style></head><body>
+<h1>AI Model Validation: From Mathematics to Trust</h1>
+<h2>Episode 16 — Consistency, Reproducibility, and Variance: Will the AI Give Us the Same Quality Again?</h2>
+<p>Author: Vishwanath Akuthota</p>
+<p>Founder of DrPinnacle, OpenVals and The Foundry&#x27;s</p>
+<p>Episode 15 established that explanations themselves must be validated. Episode 16 asks a fundamental question for probabilistic AI, LLMs and agents:</p>
+<blockquote>If an AI system succeeds once, how much evidence do we have that it will succeed again?</blockquote>
+<h3>One Successful Run ≠ Reproducible AI Quality</h3>
+<p>A single run is an observation. Trust requires evidence about the distribution of repeated behaviour.</p>
+<h3>Task → Repeated Runs → Outcome Distribution → Variance → Agreement → Sensitivity → Reproducibility → Uncertainty → Evidence → Trust Decision</h3>
+<pre><code>import numpy as np
+import matplotlib.pyplot as plt
+import platform, sys
+rng=np.random.default_rng(1616)
+print(&quot;Python:&quot;,sys.version.split()[0])
+print(&quot;NumPy:&quot;,np.__version__)
+print(&quot;System:&quot;,platform.system(),platform.machine())
+</code></pre>
+<h2>1. One Run Is an Observation</h2>
+<p>Suppose one execution produces quality:</p>
+<h3>Q₁=0.92</h3>
+<p>This does not tell us whether the next run will produce 0.92, 0.90, 0.50, or fail.</p>
+<p>For repeated executions:</p>
+<h3>Q₁,Q₂,...,Q_R</h3>
+<p>we can study a distribution.</p>
+<h3>Observation ≠ Distribution</h3>
+<h2>2. Consistency</h2>
+<p>Consistency asks how similar behaviour remains across comparable executions.</p>
+<h3>Var(Q)=E[(Q−E[Q])²]</h3>
+<p>Low variance can mean consistent behaviour.</p>
+<p>But a consistently incorrect model is still incorrect.</p>
+<h3>Consistency ≠ Correctness</h3>
+<h2>3. Repeatability</h2>
+<p>Repeatability asks whether sufficiently similar results occur when the same experiment is repeated under the same defined conditions.</p>
+<p>Those conditions must be recorded rather than assumed.</p>
+<h2>4. Reproducibility</h2>
+<p>Reproducibility asks whether a result can be regenerated under a specified experimental and computational configuration.</p>
+<p>That configuration may include:</p>
+<h3>Model + Data + Prompt + Parameters + Seed + Runtime + Dependencies + Environment + External State</h3>
+<p>Terminology differs across scientific disciplines, so the operational definition should always be documented.</p>
+<h2>5. Deterministic vs Stochastic AI</h2>
+<p>For an idealized deterministic function:</p>
+<h3>y=f(x)</h3>
+<p>the same input under the same computational state produces the same output.</p>
+<p>For stochastic AI:</p>
+<h3>Y ~ P(Y|x,θ,c)</h3>
+<p>where c can include decoding configuration, random state, retrieval, tools and environment.</p>
+<p>Validation must characterize the output distribution.</p>
+<h2>6. Mean Repeated-Run Quality</h2>
+<p>For R runs:</p>
+<h3>Q̄=(1/R)Σ_r Q_r</h3>
+<p>This estimates expected quality under the tested run-generating process.</p>
+<h3>Mean Quality ≠ Guaranteed Quality</h3>
+<h2>7. Run-to-Run Variance</h2>
+<p>Sample variance:</p>
+<h3>s²=[1/(R−1)]Σ_r(Q_r−Q̄)²</h3>
+<p>Standard deviation:</p>
+<h3>s=√s²</h3>
+<p>These quantify dispersion across repeated runs.</p>
+<pre><code>R=1000
+quality=np.clip(rng.normal(.86,.08,R),0,1)
+print(&quot;Mean:&quot;,quality.mean())
+print(&quot;SD:&quot;,quality.std(ddof=1))
+print(&quot;5th percentile:&quot;,np.quantile(quality,.05))
+print(&quot;Minimum:&quot;,quality.min())
+plt.figure(figsize=(8,5))
+plt.hist(quality,bins=35)
+plt.xlabel(&quot;Quality score&quot;); plt.ylabel(&quot;Run count&quot;)
+plt.title(&quot;Repeated-Run Quality Distribution&quot;)
+plt.grid(alpha=.2); plt.show()
+</code></pre>
+<h2>8. Standard Error</h2>
+<p>If runs are approximately independent and identically distributed:</p>
+<h3>SE(Q̄)=s/√R</h3>
+<p>Increasing R reduces uncertainty about the mean.</p>
+<p>It does not reduce the system&#x27;s intrinsic run-to-run variance.</p>
+<h2>9. Confidence Interval</h2>
+<p>A large-sample approximation is:</p>
+<h3>Q̄ ± z·SE(Q̄)</h3>
+<p>This describes uncertainty in estimated expected quality—not the range of future individual runs.</p>
+<h2>10. Mean Uncertainty vs Run Variability</h2>
+<p>With many runs, the mean can be estimated precisely while individual outputs remain highly variable.</p>
+<h3>Precise Mean ≠ Consistent System</h3>
+<pre><code>for r in [10,30,100,1000]:
+    q=quality[:r]
+    se=q.std(ddof=1)/np.sqrt(r)
+    print(f&quot;R={r:4d} mean={q.mean():.4f} 95%CI≈({q.mean()-1.96*se:.4f},{q.mean()+1.96*se:.4f}) SD={q.std(ddof=1):.4f}&quot;)
+</code></pre>
+<h2>11. Coefficient of Variation</h2>
+<p>For positive metrics:</p>
+<h3>CV=s/Q̄</h3>
+<p>CV expresses variability relative to the mean.</p>
+<p>It is inappropriate or unstable when the mean is near zero or changes sign.</p>
+<h2>12. Lower-Tail Quality</h2>
+<p>Average quality can conceal bad executions.</p>
+<p>Useful quantities include:</p>
+<h3>Q₀.₀₅ = 5th percentile</h3>
+<p>and:</p>
+<h3>P(Q&lt;τ)</h3>
+<p>where τ is a minimum acceptable quality threshold.</p>
+<h2>13. Run Failure Probability</h2>
+<p>Define:</p>
+<h3>F_r=1[Q_r&lt;τ]</h3>
+<p>Then:</p>
+<h3>p̂_fail=(1/R)Σ_rF_r</h3>
+<p>Consistency therefore connects directly to reliability.</p>
+<pre><code>tau=.70
+fail=quality&lt;tau
+print(&quot;Minimum acceptable quality:&quot;,tau)
+print(&quot;Observed run failure rate:&quot;,fail.mean())
+</code></pre>
+<h2>14. Same Mean, Different Variance</h2>
+<p>Two systems can have:</p>
+<h3>E[Q_A]=E[Q_B]</h3>
+<p>while:</p>
+<h3>Var(Q_A)≪Var(Q_B)</h3>
+<p>The average alone cannot distinguish them.</p>
+<pre><code>A=np.clip(rng.normal(.85,.03,5000),0,1)
+B=np.clip(rng.normal(.85,.14,5000),0,1)
+for name,q in [(&quot;A&quot;,A),(&quot;B&quot;,B)]:
+    print(name,&quot;mean=&quot;,q.mean(),&quot;SD=&quot;,q.std(ddof=1),&quot;P(Q&lt;.70)=&quot;,(q&lt;.70).mean())
+plt.figure(figsize=(8,5))
+plt.hist(A,bins=50,alpha=.5,label=&quot;System A&quot;)
+plt.hist(B,bins=50,alpha=.5,label=&quot;System B&quot;)
+plt.xlabel(&quot;Quality&quot;); plt.ylabel(&quot;Runs&quot;)
+plt.title(&quot;Same Mean, Different Variance&quot;)
+plt.legend(); plt.show()
+</code></pre>
+<h2>15. Stochastic Generation</h2>
+<p>A generative model can sample tokens:</p>
+<h3>X_t ~ P(X_t|X_&lt;t,prompt)</h3>
+<p>Different random trajectories can produce different completions even when the prompt and model are unchanged.</p>
+<h2>16. Temperature</h2>
+<p>A common temperature transformation is:</p>
+<h3>P_T(i)=exp(z_i/T)/Σ_jexp(z_j/T)</h3>
+<p>Lower temperature generally sharpens the distribution; higher temperature generally flattens it.</p>
+<h3>Temperature ≠ Direct Measure of Creativity</h3>
+<pre><code>logits=np.array([3.,2.,1.,0.])
+def softmax_temp(z,T):
+    a=z/T; a-=a.max(); e=np.exp(a); return e/e.sum()
+for T in [.3,.7,1.,1.5,2.]:
+    print(&quot;T=&quot;,T,np.round(softmax_temp(logits,T),4))
+</code></pre>
+<h2>17. Temperature and Variance</h2>
+<p>Changing the sampling distribution can change diversity and evaluation variance.</p>
+<p>The effect on semantic quality is task- and model-dependent.</p>
+<h3>Higher Temperature ≠ Automatically Worse</h3>
+<h3>Lower Temperature ≠ Guaranteed Determinism</h3>
+<h2>18. Random Seeds</h2>
+<p>A seed controls a pseudo-random number stream in a specified implementation.</p>
+<p>It can improve repeatability, but identical seeds do not guarantee identical outputs across every provider, runtime, hardware stack or external tool.</p>
+<h3>Same Seed ≠ Universal Reproducibility</h3>
+<pre><code>def experiment(seed):
+    r=np.random.default_rng(seed)
+    return r.normal(size=5)
+print(experiment(42))
+print(experiment(42))
+print(experiment(43))
+</code></pre>
+<h2>19. Sources of Variance</h2>
+<p>Observed variance can originate from input sampling, training data, initialization, optimization, checkpoints, inference sampling, prompts, retrieval, tools, external APIs, environment and evaluation.</p>
+<p>Validation should locate variance rather than reporting one undifferentiated number.</p>
+<h2>20. Law of Total Variance</h2>
+<p>For conditioning variable Z:</p>
+<h3>Var(Y)=E[Var(Y|Z)]+Var(E[Y|Z])</h3>
+<p>This separates variation within conditions from variation between conditions.</p>
+<h2>21. Hierarchical Evaluation</h2>
+<p>For task i and repeated run r:</p>
+<h3>Q_ir=μ+α_i+ε_ir</h3>
+<p>α_i can represent task difficulty.</p>
+<p>ε_ir represents within-task run variation.</p>
+<p>This distinguishes difficult tasks from unstable execution.</p>
+<pre><code>tasks=100; runs=30
+task_effect=rng.normal(0,.08,tasks)
+Q=.82+task_effect[:,None]+rng.normal(0,.04,(tasks,runs))
+print(&quot;Mean within-task variance:&quot;,np.mean(np.var(Q,axis=1,ddof=1)))
+print(&quot;Between-task mean variance:&quot;,np.var(np.mean(Q,axis=1),ddof=1))
+print(&quot;Total observed variance:&quot;,np.var(Q.ravel(),ddof=1))
+</code></pre>
+<h2>22. Repeated Measures</h2>
+<p>Evaluate each task multiple times rather than once.</p>
+<p>This enables direct estimation of:</p>
+<h3>Within-Task Variance</h3>
+<h3>Between-Task Variance</h3>
+<h3>Failure Frequency</h3>
+<h3>Worst-Run Behaviour</h3>
+<h3>Agreement</h3>
+<h2>23. Categorical Agreement</h2>
+<p>For repeated categorical decisions:</p>
+<h3>P_o = observed agreement</h3>
+<p>Raw agreement can be misleading when one class dominates.</p>
+<h2>24. Cohen&#x27;s Kappa</h2>
+<p>For two categorical result sets:</p>
+<h3>κ=(P_o−P_e)/(1−P_e)</h3>
+<p>where P_e is expected chance agreement from the marginal frequencies.</p>
+<p>Kappa should be interpreted with prevalence and marginal distributions.</p>
+<pre><code>N=3000
+latent=rng.normal(size=N)
+r1=(latent+rng.normal(0,.6,N)&gt;0).astype(int)
+r2=(latent+rng.normal(0,.6,N)&gt;0).astype(int)
+po=np.mean(r1==r2)
+p1,p2=r1.mean(),r2.mean()
+pe=p1*p2+(1-p1)*(1-p2)
+print(&quot;Observed agreement:&quot;,po)
+print(&quot;Chance agreement:&quot;,pe)
+print(&quot;Kappa:&quot;,(po-pe)/(1-pe))
+</code></pre>
+<h2>25. Correlation Is Not Agreement</h2>
+<p>Two continuous outputs can be highly correlated while differing systematically.</p>
+<h3>Correlation ≠ Agreement</h3>
+<p>Agreement analysis should inspect paired differences and bias.</p>
+<h2>26. Paired Difference Analysis</h2>
+<p>For paired outputs A_i and B_i:</p>
+<h3>d_i=A_i−B_i</h3>
+<p>Inspect:</p>
+<h3>d̄</h3>
+<p>and the dispersion of d_i.</p>
+<p>A Bland–Altman-style analysis can reveal systematic offsets hidden by correlation.</p>
+<pre><code>x=rng.normal(50,10,500)
+y=x+8+rng.normal(0,2,500)
+d=y-x
+print(&quot;Correlation:&quot;,np.corrcoef(x,y)[0,1])
+print(&quot;Mean paired difference:&quot;,d.mean())
+print(&quot;SD difference:&quot;,d.std(ddof=1))
+plt.figure(figsize=(8,5))
+plt.scatter((x+y)/2,d,s=12,alpha=.4)
+plt.axhline(d.mean())
+plt.axhline(d.mean()+1.96*d.std(ddof=1),linestyle=&quot;--&quot;)
+plt.axhline(d.mean()-1.96*d.std(ddof=1),linestyle=&quot;--&quot;)
+plt.xlabel(&quot;Pair mean&quot;); plt.ylabel(&quot;Difference&quot;)
+plt.title(&quot;Agreement Through Paired Differences&quot;)
+plt.grid(alpha=.2); plt.show()
+</code></pre>
+<h2>27. Prompt Sensitivity</h2>
+<p>For semantically equivalent prompts p₁,...,p_K:</p>
+<h3>S_prompt=SD_k[Q(p_k)]</h3>
+<p>This measures one form of prompt sensitivity.</p>
+<h3>Same Intent ≠ Same Model Behaviour</h3>
+<h2>28. Metamorphic Consistency</h2>
+<p>If transformation T should preserve the correct target:</p>
+<h3>y(T(x))=y(x)</h3>
+<p>then test:</p>
+<h3>d(f(T(x)),f(x))</h3>
+<p>Examples can include valid paraphrases, equivalent units, formatting changes or other justified invariances.</p>
+<h2>29. Agentic AI Variance</h2>
+<p>Agent systems introduce additional variance through planning, tool selection, retrieval, execution order, retries, intermediate state and stochastic generation.</p>
+<h3>Agent Variance &gt; Model-Call Variance can occur</h3>
+<h2>30. Multi-Step Compounding</h2>
+<p>If k required steps independently succeed with probability r:</p>
+<h3>P(workflow success)=r^k</h3>
+<p>Longer workflows can amplify small per-step failure probabilities.</p>
+<pre><code>for r in [.95,.98,.99,.995]:
+    print(f&quot;Per-step reliability={r:.3f} -&gt; 20-step workflow={r**20:.3%}&quot;)
+</code></pre>
+<h2>31. Agent Path Variability</h2>
+<p>Across repeated agent executions record steps, tools, tokens, latency, cost, final quality and failure mode.</p>
+<h3>Same Final Answer ≠ Same Operational Behaviour</h3>
+<h2>32. Retrieval Variance</h2>
+<p>For RAG:</p>
+<h3>Y~P(Y|X,R)</h3>
+<p>If retrieved context R changes, output variance may originate upstream.</p>
+<p>Retrieval consistency and generation consistency should be measured separately.</p>
+<h2>33. Tool and External-State Variance</h2>
+<p>Agents can depend on changing APIs, databases, search results, clocks, sensors and files.</p>
+<p>Reproducing an agent run may require preserving external state—not merely a seed.</p>
+<h2>34. Model Version Variance</h2>
+<p>A model update can produce:</p>
+<h3>f_v1(x)≠f_v2(x)</h3>
+<p>even when the prompt and evaluation data remain unchanged.</p>
+<p>Every evidence record therefore needs the model version.</p>
+<h2>35. Exact vs Statistical Reproducibility</h2>
+<p>Exact reproducibility: identical output.</p>
+<p>Statistical reproducibility: repeated outputs remain sufficiently similar in distribution or continue satisfying acceptance criteria.</p>
+<p>For stochastic AI, statistical reproducibility is often the more meaningful target.</p>
+<h2>36. Reproducibility Envelope</h2>
+<p>Define acceptable deviation:</p>
+<h3>|M_run−M_ref|≤ε</h3>
+<p>or another task-specific equivalence criterion.</p>
+<p>ε is a scientific and operational tolerance—not a universal constant.</p>
+<h2>37. Distributional Reproducibility</h2>
+<p>Compare repeated-run distributions using quantities such as mean difference, variance difference, KS distance, Wasserstein distance or Jensen–Shannon divergence.</p>
+<p>Different metrics answer different questions.</p>
+<h2>38. Bootstrap Uncertainty of Variance</h2>
+<p>The observed standard deviation is itself an estimate.</p>
+<p>Bootstrap repeated runs to obtain uncertainty intervals for mean, SD, failure rate or quantiles.</p>
+<pre><code>q=quality[:200]
+Bboot=2500
+boot_sd=np.empty(Bboot)
+for b in range(Bboot):
+    sample=rng.choice(q,size=len(q),replace=True)
+    boot_sd[b]=sample.std(ddof=1)
+print(&quot;Observed SD:&quot;,q.std(ddof=1))
+print(&quot;Bootstrap 95% interval:&quot;,np.quantile(boot_sd,[.025,.975]))
+</code></pre>
+<h2>39. How Many Repeated Runs?</h2>
+<p>There is no universal repetition count.</p>
+<p>Required runs depend on target quantity, variance, rare-failure probability, desired precision, confidence level, cost, dependence and decision stakes.</p>
+<h2>40. Precision Planning</h2>
+<p>Under a simple independent normal approximation, estimating a mean within margin m can use:</p>
+<h3>R≈(zσ/m)²</h3>
+<p>Pilot evidence is needed when σ is unknown.</p>
+<pre><code>sigma=.08
+for margin in [.05,.02,.01,.005]:
+    print(f&quot;Margin ±{margin:.3f}: R≈{np.ceil((1.96*sigma/margin)**2):.0f}&quot;)
+</code></pre>
+<h2>41. Rare Failures Require More Evidence</h2>
+<p>If zero failures occur in R approximately independent trials:</p>
+<h3>p_fail,upper≈3/R</h3>
+<p>at roughly 95% confidence.</p>
+<p>Rare-failure assurance can require far more repetitions than mean estimation.</p>
+<h2>42. Correlated Repetitions</h2>
+<p>Runs can share caches, sessions, retrieved documents, provider state or temporal conditions.</p>
+<h3>R Runs ≠ R Independent Runs</h3>
+<p>Dependence reduces the effective amount of evidence.</p>
+<h2>43. Effective Sample Size</h2>
+<p>For a simplified stationary correlated sequence:</p>
+<h3>R_eff≈R/[1+2Σ_kρ_k]</h3>
+<p>Positive autocorrelation can reduce effective sample size.</p>
+<p>The formula relies on assumptions and should not be applied mechanically.</p>
+<h2>44. Environment Reproducibility</h2>
+<p>Relevant dimensions can include operating system, CPU/GPU, library version, model runtime, quantization, serving stack, region or provider.</p>
+<p>Test the dimensions that materially affect the intended deployment.</p>
+<h2>45. Numerical Reproducibility</h2>
+<p>Finite-precision arithmetic and execution order can create numerical differences.</p>
+<p>For many systems, decision equivalence is more meaningful than bitwise equality.</p>
+<h3>Numerical Identity ≠ Always Required</h3>
+<h2>46. Data Reproducibility</h2>
+<p>Preserve dataset identifier, version, split, sampling rule, preprocessing, label version and timestamp.</p>
+<p>A result cannot be scientifically reconstructed if the evaluated data cannot be reconstructed.</p>
+<h2>47. Evaluator Variance</h2>
+<p>Observed score variability may include variability from the evaluation process itself.</p>
+<h3>Observed Variance = System Variance + Evaluator Variance + Interaction</h3>
+<p>The evaluator is part of the measurement system.</p>
+<h2>48. Human-Rater Variance</h2>
+<p>Human evaluation should preserve disagreement and measure inter-rater reliability.</p>
+<h3>Human Label ≠ Perfect Ground Truth</h3>
+<h2>49. LLM-as-Judge Variance</h2>
+<p>An LLM judge can be stochastic, prompt-sensitive, position-sensitive and version-sensitive.</p>
+<p>Validate judge repeatability, prompt sensitivity, position bias, agreement with humans and version stability.</p>
+<h3>AI Evaluator ≠ Measurement Oracle</h3>
+<h2>50. Variance Budget</h2>
+<p>A conceptual engineering decomposition is:</p>
+<h3>V_total≈V_input+V_prompt+V_model+V_retrieval+V_tool+V_evaluator+Interactions</h3>
+<p>An additive statistical decomposition requires an appropriate experimental design.</p>
+<h2>51. Factorial Experiments</h2>
+<p>Systematically vary factors:</p>
+<h3>Prompt × Temperature × Model Version × Retrieval Mode</h3>
+<p>Factorial experiments can reveal main effects and interactions more efficiently than ad hoc testing.</p>
+<h2>52. Interaction Effects</h2>
+<p>Prompt sensitivity may depend on model version. Temperature effects may depend on task. Retrieval effects may depend on query type.</p>
+<h3>Total Behaviour ≠ Sum of Independent Effects</h3>
+<h2>53. Subgroup Consistency</h2>
+<p>Episode 14 extends naturally:</p>
+<h3>Var(Q|G=g)</h3>
+<h3>P(Failure|G=g)</h3>
+<h3>Agreement_g</h3>
+<p>Groups can have equal mean quality but unequal variance.</p>
+<h3>Equal Mean ≠ Equal Consistency</h3>
+<h2>54. Consistency Under Stress</h2>
+<p>Repeat each Episode 10 stress condition multiple times:</p>
+<h3>Q_(stress,run)</h3>
+<p>This separates stress-induced degradation from ordinary stochastic variation.</p>
+<h2>55. Consistency Under Drift</h2>
+<p>Variance can change over time:</p>
+<h3>Var(Q_t)</h3>
+<p>A rise in variance can be an investigation signal even before mean performance changes substantially.</p>
+<p>It is not by itself proof of distribution drift.</p>
+<h2>56. Consistency and Calibration</h2>
+<p>A system can be calibrated on average while individual stochastic outputs remain unstable.</p>
+<h3>Calibration ≠ Repeatability</h3>
+<h2>57. Consistency and Safety</h2>
+<p>When low-quality tail runs have severe consequences, safety analysis should include:</p>
+<h3>P(Q&lt;τ)</h3>
+<h3>Tail Severity</h3>
+<h3>Variance Under Critical Scenarios</h3>
+<p>Average quality alone is insufficient.</p>
+<h2>58. Version Regression Testing</h2>
+<p>For a new model version, compare paired task-level performance:</p>
+<h3>Δ_i=M_new,i−M_old,i</h3>
+<p>and compare repeated-run variance.</p>
+<p>A slightly higher mean does not automatically justify deployment.</p>
+<h2>59. Reproducibility Manifest</h2>
+<p>Every experiment should preserve:</p>
+<h3>Code Version</h3>
+<h3>Model Version</h3>
+<h3>Data Version</h3>
+<h3>Prompt Version</h3>
+<h3>Evaluator Version</h3>
+<h3>Parameters</h3>
+<h3>Seeds</h3>
+<h3>Dependencies</h3>
+<h3>Environment</h3>
+<h3>Timestamp</h3>
+<h3>External Resources</h3>
+<p>This turns a result into reconstructable evidence.</p>
+<h2>60. Multi-Dimensional Acceptance Gate</h2>
+<p>A consistency gate can require:</p>
+<h3>Mean Quality ≥ μ_min</h3>
+<h3>SD ≤ σ_max</h3>
+<h3>P(Q&lt;τ) ≤ p_max</h3>
+<h3>Agreement ≥ a_min</h3>
+<h3>Lower Quantile ≥ q_min</h3>
+<p>Thresholds must come from intended-use requirements.</p>
+<h3>One Average Score ≠ Acceptance Evidence</h3>
+<pre><code>def gate(q):
+    return {
+        &quot;mean&quot;:float(q.mean()),
+        &quot;sd&quot;:float(q.std(ddof=1)),
+        &quot;failure_rate&quot;:float(np.mean(q&lt;.70)),
+        &quot;pass_mean&quot;:bool(q.mean()&gt;=.85),
+        &quot;pass_sd&quot;:bool(q.std(ddof=1)&lt;=.05),
+        &quot;pass_failure&quot;:bool(np.mean(q&lt;.70)&lt;=.01)
+    }
+print(&quot;System A:&quot;,gate(A))
+print(&quot;System B:&quot;,gate(B))
+</code></pre>
+<h2>61. Continuous Consistency Monitoring</h2>
+<p>Monitor over time:</p>
+<h3>Mean(Q_t)</h3>
+<h3>SD(Q_t)</h3>
+<h3>Quantiles(Q_t)</h3>
+<h3>FailureRate_t</h3>
+<h3>Agreement_t</h3>
+<h3>PromptSensitivity_t</h3>
+<h3>PathVariance_t</h3>
+<h3>CostVariance_t</h3>
+<h3>LatencyVariance_t</h3>
+<p>Consistency is a time-varying property.</p>
+<h2>62. OpenVals Evidence Model</h2>
+<p>OpenVals should preserve task/data/model/prompt/evaluator versions, decoding configuration, seeds where meaningful, repeated-run outputs, mean, variance, tails, failure probability, confidence intervals, agreement, prompt sensitivity, retrieval/tool variance, agent path variance, evaluator variance, subgroup consistency, stress variance, environment manifest and acceptance criteria.</p>
+<p>The stronger question is:</p>
+<h3>How reliably can we reproduce acceptable behaviour, under which conditions, and with what uncertainty?</h3>
+<h2>63. Scientific Consistency Chain</h2>
+<h3>Task → Repeated Runs → Outcome Distribution → Variance → Agreement → Sensitivity → Reproducibility → Uncertainty → Evidence → Trust Decision → Monitoring</h3>
+<p>A demonstration becomes evidence only when repeatability and uncertainty are measured.</p>
+<h2>64. Mathematical Summary</h2>
+<h3>Q̄=(1/R)Σ_rQ_r</h3>
+<h3>s²=[1/(R−1)]Σ_r(Q_r−Q̄)²</h3>
+<h3>SE(Q̄)=s/√R</h3>
+<h3>CV=s/Q̄</h3>
+<h3>F_r=1[Q_r&lt;τ]</h3>
+<h3>p̂_fail=(1/R)Σ_rF_r</h3>
+<h3>P_T(i)=exp(z_i/T)/Σ_jexp(z_j/T)</h3>
+<h3>Var(Y)=E[Var(Y|Z)]+Var(E[Y|Z])</h3>
+<h3>κ=(P_o−P_e)/(1−P_e)</h3>
+<h3>S_prompt=SD_k[Q(p_k)]</h3>
+<h3>P(workflow success)=r^k</h3>
+<h3>R≈(zσ/m)²</h3>
+<h3>p_fail,upper≈3/R</h3>
+<h3>R_eff≈R/[1+2Σ_kρ_k]</h3>
+<h2>65. Central Conclusion</h2>
+<h3>One Successful Run ≠ Reproducible AI Quality</h3>
+<h3>Mean Performance ≠ Consistency</h3>
+<h3>Same Seed ≠ Universal Reproducibility</h3>
+<h3>Correlation ≠ Agreement</h3>
+<h3>More Runs ≠ More Independent Evidence</h3>
+<blockquote>A trustworthy AI system should not merely demonstrate that it can succeed. Validation should measure how often, how consistently, and under which conditions that success can be reproduced.</blockquote>
+<p>The scientific questions are:</p>
+<h3>What varies between runs?</h3>
+<h3>How large is the variance?</h3>
+<h3>What happens in the lower tail?</h3>
+<h3>Which factors create instability?</h3>
+<h3>Are outputs reproducible across prompts, environments, versions, retrieval and tools?</h3>
+<h3>Does the evaluator itself introduce variance?</h3>
+<h3>Is consistency preserved across subgroups and stress conditions?</h3>
+<h3>How many repetitions support the claim?</h3>
+<h3>Does reproducibility remain stable after deployment?</h3>
+<p>OpenVals principle:</p>
+<blockquote>A single result is an observation. Repeated, quantified and reproducible behaviour becomes evidence.</blockquote>
+<h2>Next Episode</h2>
+<p>Episode 17 — LLM Evaluation: How Do We Scientifically Measure Generative AI?</p>
+<p>Episode 17 can move directly into exact-match limitations, semantic similarity, factuality, groundedness, hallucination, rubric evaluation, pairwise preference, LLM-as-judge, judge bias, benchmark contamination, pass@k, task-specific evaluation and multi-metric evidence.</p>
+</body></html>

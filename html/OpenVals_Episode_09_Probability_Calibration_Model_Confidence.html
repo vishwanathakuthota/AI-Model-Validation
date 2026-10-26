@@ -1,0 +1,400 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Episode 09 — Probability Calibration</title>
+<meta name="description" content="AI Model Validation Episode 09: probability calibration, reliability diagrams, Brier score, log loss, ECE, overconfidence, recalibration, temperature scaling and calibration drift."><meta name="author" content="Vishwanath Akuthota">
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;max-width:980px;margin:42px auto;padding:0 26px;line-height:1.7;color:#202124}h1{font-size:2.3rem}h2{margin-top:2.5rem}h3{font-family:Georgia,serif;text-align:center;font-size:1.3rem;margin:24px 0}pre{background:#f6f8fa;padding:17px;border-radius:8px;overflow:auto}blockquote{border-left:4px solid #777;padding:8px 18px;background:#fafafa}</style></head><body>
+<h1>AI Model Validation: From Mathematics to Trust</h1>
+<h2>Episode 09 — Probability Calibration: Can We Trust the Model&#x27;s Confidence?</h2>
+<p>Author: Vishwanath Akuthota</p>
+<p>Founder of DrPinnacle, OpenVals and The Foundry&#x27;s</p>
+<p>A model can classify correctly and still be dangerously wrong about how certain it is.</p>
+<blockquote>When a model says 90%, does 90% actually mean 90%?</blockquote>
+<p>This episode develops probability semantics, calibration, discrimination versus calibration, reliability diagrams, Brier score, log loss, calibration error, overconfidence, underconfidence, recalibration, temperature scaling, calibration uncertainty, distribution shift and monitoring.</p>
+<blockquote>Confidence is a claim. Calibration tests that claim.</blockquote>
+<h2>1. Probability Is a Quantitative Claim</h2>
+<p>For binary outcome Y:</p>
+<h3>Y ∈ {0, 1}</h3>
+<p>A probabilistic classifier returns:</p>
+<h3>p̂(x) = P̂(Y = 1 | X = x)</h3>
+<p>Ideal calibration means:</p>
+<h3>P(Y = 1 | p̂ = p) = p</h3>
+<p>If many comparable cases receive probability 0.80, approximately 80% should experience the event under the population and conditions being evaluated.</p>
+<pre><code>import numpy as np
+import matplotlib.pyplot as plt
+import platform, sys
+print(&quot;Python :&quot;,sys.version.split()[0])
+print(&quot;System :&quot;,platform.system(),platform.release())
+print(&quot;Machine:&quot;,platform.machine())
+print(&quot;NumPy  :&quot;,np.__version__)
+</code></pre>
+<h2>2. Confidence Is Not Correctness</h2>
+<p>For one case:</p>
+<h3>p̂ = 0.95</h3>
+<p>does not guarantee Y=1. A 95% event can fail.</p>
+<p>Calibration is a statistical property across predictions.</p>
+<h3>High Confidence ≠ Guaranteed Correctness</h3>
+<h3>Correct Prediction ≠ Calibrated Probability</h3>
+<h2>3. Controlled Probability Experiment</h2>
+<pre><code>rng=np.random.default_rng(909)
+n=12000
+x=rng.normal(0,1,n)
+
+def sigmoid(z): return 1/(1+np.exp(-z))
+def logit(p):
+    p=np.clip(p,1e-12,1-1e-12)
+    return np.log(p/(1-p))
+
+true_p=sigmoid(1.5*x-.3)
+y=rng.binomial(1,true_p)
+
+p_cal=true_p.copy()
+p_over=sigmoid(1.8*logit(true_p))
+p_under=sigmoid(.55*logit(true_p))
+
+print(&quot;N:&quot;,n)
+print(&quot;Observed prevalence:&quot;,y.mean())
+print(&quot;Mean true probability:&quot;,true_p.mean())
+</code></pre>
+<h2>4. Same Ranking, Different Confidence</h2>
+<p>The overconfident and underconfident transformations are monotonic.</p>
+<p>They preserve ordering while changing probability magnitude.</p>
+<h3>Same Ranking ≠ Same Calibration</h3>
+<p>This separates discrimination from probability reliability.</p>
+<h2>5. Reliability Diagram</h2>
+<p>For probability bin Bₘ:</p>
+<h3>Confidence(Bₘ) = (1 / |Bₘ|) Σᵢ∈Bₘ p̂ᵢ</h3>
+<h3>Observed Frequency(Bₘ) = (1 / |Bₘ|) Σᵢ∈Bₘ yᵢ</h3>
+<p>Perfect calibration lies near:</p>
+<h3>Observed Frequency(Bₘ) = Confidence(Bₘ)</h3>
+<pre><code>def reliability(y,p,bins=12):
+    edges=np.linspace(0,1,bins+1)
+    mean_p=[]; observed=[]; counts=[]
+    for lo,hi in zip(edges[:-1],edges[1:]):
+        mask=(p&gt;=lo)&amp;(p&lt;hi if hi&lt;1 else p&lt;=hi)
+        if mask.sum():
+            mean_p.append(p[mask].mean())
+            observed.append(y[mask].mean())
+            counts.append(mask.sum())
+    return np.array(mean_p),np.array(observed),np.array(counts)
+
+plt.figure(figsize=(7,6))
+plt.plot([0,1],[0,1],linestyle=&quot;--&quot;,label=&quot;Ideal&quot;)
+for label,p in [(&quot;Calibrated&quot;,p_cal),(&quot;Overconfident&quot;,p_over),(&quot;Underconfident&quot;,p_under)]:
+    mp,obs,_=reliability(y,p)
+    plt.plot(mp,obs,marker=&quot;o&quot;,label=label)
+plt.xlabel(&quot;Mean predicted probability&quot;)
+plt.ylabel(&quot;Observed event frequency&quot;)
+plt.title(&quot;Reliability Diagram&quot;)
+plt.legend(); plt.grid(alpha=.25); plt.show()
+</code></pre>
+<h2>6. Overconfidence and Underconfidence</h2>
+<p>Overconfidence means probability predictions are more extreme than justified by empirical outcomes.</p>
+<p>Underconfidence means probability predictions are too conservative.</p>
+<p>Both can matter operationally when probabilities control thresholds, escalation, abstention or risk limits.</p>
+<h2>7. Discrimination ≠ Calibration</h2>
+<p>Discrimination asks whether positive cases tend to receive higher scores than negative cases.</p>
+<p>Calibration asks whether the probability values correspond to empirical frequencies.</p>
+<p>A model may have excellent ranking and poor calibration.</p>
+<pre><code>def auc_pairwise(y,p):
+    pos=p[y==1]; neg=p[y==0]
+    total=count=0
+    for block in np.array_split(pos,20):
+        total+=(block[:,None]&gt;neg[None,:]).sum()
+        total+=.5*(block[:,None]==neg[None,:]).sum()
+        count+=len(block)*len(neg)
+    return total/count
+
+for label,p in [(&quot;Calibrated&quot;,p_cal),(&quot;Overconfident&quot;,p_over),(&quot;Underconfident&quot;,p_under)]:
+    print(f&quot;{label:&lt;15} AUC={auc_pairwise(y,p):.6f}&quot;)
+</code></pre>
+<p>The AUC values remain essentially identical because ranking is preserved. Calibration, however, is visibly different.</p>
+<h2>8. Brier Score</h2>
+<p>For binary outcomes:</p>
+<h3>Brier = (1/n) Σᵢ₌₁ⁿ (p̂ᵢ − yᵢ)²</h3>
+<p>Lower is better.</p>
+<p>For an event with true probability q and reported probability p:</p>
+<h3>E[(p − Y)²] = q(p − 1)² + (1 − q)p²</h3>
+<p>Expanding:</p>
+<h3>E[(p − Y)²] = (p − q)² + q(1 − q)</h3>
+<p>The second term does not depend on reported p.</p>
+<p>Therefore expected Brier loss is minimized at:</p>
+<h3>p = q</h3>
+<pre><code>def brier(y,p): return np.mean((p-y)**2)
+for label,p in [(&quot;Calibrated&quot;,p_cal),(&quot;Overconfident&quot;,p_over),(&quot;Underconfident&quot;,p_under)]:
+    print(f&quot;{label:&lt;15} Brier={brier(y,p):.6f}&quot;)
+</code></pre>
+<h2>9. Brier Decomposition</h2>
+<p>For grouped forecasts, Brier score can be decomposed conceptually:</p>
+<h3>Brier = Reliability − Resolution + Uncertainty</h3>
+<p>Reliability measures calibration error.</p>
+<p>Resolution rewards separating cases into groups with different observed event frequencies.</p>
+<p>Uncertainty reflects intrinsic outcome variability associated with prevalence.</p>
+<pre><code>def brier_decomposition(y,p,bins=15):
+    edges=np.linspace(0,1,bins+1); base=y.mean(); n=len(y)
+    rel=res=0.0
+    for lo,hi in zip(edges[:-1],edges[1:]):
+        mask=(p&gt;=lo)&amp;(p&lt;hi if hi&lt;1 else p&lt;=hi)
+        if mask.sum():
+            w=mask.sum()/n
+            pred=p[mask].mean(); obs=y[mask].mean()
+            rel+=w*(pred-obs)**2
+            res+=w*(obs-base)**2
+    unc=base*(1-base)
+    return rel,res,unc
+
+for label,p in [(&quot;Calibrated&quot;,p_cal),(&quot;Overconfident&quot;,p_over),(&quot;Underconfident&quot;,p_under)]:
+    rel,res,unc=brier_decomposition(y,p)
+    print(f&quot;{label:&lt;15} reliability={rel:.5f} resolution={res:.5f} uncertainty={unc:.5f}&quot;)
+</code></pre>
+<p>Because continuous probabilities are grouped into bins, this empirical decomposition is approximate and depends on the grouping procedure.</p>
+<h2>10. Logarithmic Loss</h2>
+<h3>LogLoss = −(1/n) Σᵢ [yᵢ ln(p̂ᵢ) + (1−yᵢ) ln(1−p̂ᵢ)]</h3>
+<p>Log loss strongly penalizes confident incorrect probability predictions.</p>
+<pre><code>def logloss(y,p):
+    p=np.clip(p,1e-15,1-1e-15)
+    return -np.mean(y*np.log(p)+(1-y)*np.log(1-p))
+
+for label,p in [(&quot;Calibrated&quot;,p_cal),(&quot;Overconfident&quot;,p_over),(&quot;Underconfident&quot;,p_under)]:
+    print(f&quot;{label:&lt;15} LogLoss={logloss(y,p):.6f}&quot;)
+
+print(&quot;\nLoss for actual y=1:&quot;)
+for p in [.9,.5,.1,.01,.001]:
+    print(f&quot;p={p:.3f} -&gt; {-np.log(p):.4f}&quot;)
+</code></pre>
+<h2>11. Proper Scoring Rules</h2>
+<p>Brier score and log loss are proper scoring rules.</p>
+<p>In expectation, truthful probability reporting minimizes expected loss when the underlying probability is known.</p>
+<h3>Classification Accuracy ≠ Probability Quality</h3>
+<p>Accuracy evaluates a thresholded decision. Proper scoring rules evaluate the probability forecast itself.</p>
+<h2>12. Expected Calibration Error — ECE</h2>
+<p>A commonly used empirical summary is:</p>
+<h3>ECE = Σₘ (|Bₘ| / n) × |Observed(Bₘ) − Confidence(Bₘ)|</h3>
+<p>Lower is better, but ECE depends on binning and sample size.</p>
+<pre><code>def ece(y,p,bins=15):
+    mp,obs,count=reliability(y,p,bins)
+    return np.sum((count/len(y))*np.abs(obs-mp))
+
+for bins in [5,10,15,30,60]:
+    print(f&quot;bins={bins:&gt;2} calibrated={ece(y,p_cal,bins):.5f} &quot;
+          f&quot;overconfident={ece(y,p_over,bins):.5f}&quot;)
+</code></pre>
+<h3>ECE ≠ Binning-Invariant Truth</h3>
+<p>Changing the bins can change the reported ECE. The binning definition belongs in the evidence record.</p>
+<h2>13. Maximum Calibration Error</h2>
+<h3>MCE = maxₘ |Observed(Bₘ) − Confidence(Bₘ)|</h3>
+<p>MCE highlights the largest observed bin gap, but can be unstable when some bins contain few observations.</p>
+<pre><code>def mce(y,p,bins=15):
+    mp,obs,_=reliability(y,p,bins)
+    return np.max(np.abs(obs-mp))
+
+for label,p in [(&quot;Calibrated&quot;,p_cal),(&quot;Overconfident&quot;,p_over),(&quot;Underconfident&quot;,p_under)]:
+    print(f&quot;{label:&lt;15} MCE={mce(y,p):.5f}&quot;)
+</code></pre>
+<h2>14. Calibration-in-the-Large</h2>
+<p>A global diagnostic is:</p>
+<h3>CITL Gap = mean(p̂) − mean(Y)</h3>
+<p>Ideal value is approximately zero.</p>
+<p>This detects systematic global overprediction or underprediction but cannot expose every local calibration failure.</p>
+<pre><code>for label,p in [(&quot;Calibrated&quot;,p_cal),(&quot;Overconfident&quot;,p_over),(&quot;Underconfident&quot;,p_under)]:
+    gap=p.mean()-y.mean()
+    print(f&quot;{label:&lt;15} mean(p)={p.mean():.5f} prevalence={y.mean():.5f} gap={gap:.5f}&quot;)
+</code></pre>
+<h2>15. Calibration Intercept and Slope</h2>
+<p>A useful calibration relationship is:</p>
+<h3>logit[P(Y=1)] = α + β logit(p̂)</h3>
+<p>Ideal calibration suggests approximately:</p>
+<h3>α = 0</h3>
+<h3>β = 1</h3>
+<p>The intercept reflects systematic offset.</p>
+<p>The slope reflects whether predictions are too extreme or too compressed, subject to model and sampling assumptions.</p>
+<h2>16. Calibration Is Population-Dependent</h2>
+<h3>CalibrationPopulation A ⇏ CalibrationPopulation B</h3>
+<p>Changes in prevalence or conditional relationships can invalidate an earlier probability scale.</p>
+<h2>17. Experiment — Calibration Under Prevalence Shift</h2>
+<pre><code>x_shift=rng.normal(0,1,8000)
+deploy_true=sigmoid(1.5*x_shift+.55)
+deploy_y=rng.binomial(1,deploy_true)
+
+# Model still represents the earlier environment.
+deploy_model=sigmoid(1.5*x_shift-.3)
+
+print(&quot;Observed deployment prevalence:&quot;,deploy_y.mean())
+print(&quot;Mean predicted probability     :&quot;,deploy_model.mean())
+print(&quot;Brier:&quot;,brier(deploy_y,deploy_model))
+print(&quot;ECE:&quot;,ece(deploy_y,deploy_model))
+
+mp,obs,_=reliability(deploy_y,deploy_model)
+plt.figure(figsize=(7,6))
+plt.plot([0,1],[0,1],linestyle=&quot;--&quot;,label=&quot;Ideal&quot;)
+plt.plot(mp,obs,marker=&quot;o&quot;,label=&quot;Shifted deployment&quot;)
+plt.xlabel(&quot;Mean predicted probability&quot;)
+plt.ylabel(&quot;Observed event frequency&quot;)
+plt.title(&quot;Calibration Can Break Under Shift&quot;)
+plt.legend(); plt.grid(alpha=.25); plt.show()
+</code></pre>
+<p>A probability scale that was meaningful during validation can become systematically wrong after the deployment environment changes.</p>
+<h2>18. Recalibration</h2>
+<p>A recalibration method learns:</p>
+<h3>g : score → calibrated probability</h3>
+<p>so that:</p>
+<h3>p̃ = g(s)</h3>
+<p>Recalibration can improve probability reliability without necessarily changing the underlying ranking.</p>
+<h2>19. Platt-Style Logistic Calibration</h2>
+<p>A parametric calibration mapping can be written:</p>
+<h3>p̃ = sigmoid(a × logit(p̂) + b)</h3>
+<p>Parameters a and b are estimated using separate calibration data.</p>
+<pre><code>def fit_calibrator(p,y,iterations=30):
+    z=logit(p)
+    X=np.column_stack([z,np.ones(len(z))])
+    theta=np.array([1.0,0.0])
+    for _ in range(iterations):
+        q=sigmoid(X@theta)
+        grad=X.T@(q-y)
+        w=q*(1-q)
+        H=X.T@(X*w[:,None])
+        step=np.linalg.solve(H+1e-8*np.eye(2),grad)
+        theta-=step
+        if np.linalg.norm(step)&lt;1e-9: break
+    return theta
+
+idx=rng.permutation(n)
+cal_idx=idx[:4000]
+test_idx=idx[4000:]
+
+a,b=fit_calibrator(p_over[cal_idx],y[cal_idx])
+p_recal=sigmoid(a*logit(p_over[test_idx])+b)
+
+print(&quot;a,b:&quot;,a,b)
+print(&quot;Before Brier :&quot;,brier(y[test_idx],p_over[test_idx]))
+print(&quot;After Brier  :&quot;,brier(y[test_idx],p_recal))
+print(&quot;Before LogLoss:&quot;,logloss(y[test_idx],p_over[test_idx]))
+print(&quot;After LogLoss :&quot;,logloss(y[test_idx],p_recal))
+</code></pre>
+<h2>20. Reliability Before and After Recalibration</h2>
+<pre><code>mp1,obs1,_=reliability(y[test_idx],p_over[test_idx])
+mp2,obs2,_=reliability(y[test_idx],p_recal)
+
+plt.figure(figsize=(7,6))
+plt.plot([0,1],[0,1],linestyle=&quot;--&quot;,label=&quot;Ideal&quot;)
+plt.plot(mp1,obs1,marker=&quot;o&quot;,label=&quot;Before&quot;)
+plt.plot(mp2,obs2,marker=&quot;o&quot;,label=&quot;After&quot;)
+plt.xlabel(&quot;Mean predicted probability&quot;)
+plt.ylabel(&quot;Observed event frequency&quot;)
+plt.title(&quot;Out-of-Sample Recalibration&quot;)
+plt.legend(); plt.grid(alpha=.25); plt.show()
+</code></pre>
+<p>Calibration must be learned on data separate from final evaluation. Otherwise apparent improvement can be optimistic.</p>
+<h2>21. Temperature Scaling</h2>
+<p>For logit z:</p>
+<h3>p̃ = sigmoid(z / T)</h3>
+<p>where T &gt; 0.</p>
+<p>If T &gt; 1, probabilities become less extreme.</p>
+<p>If 0 &lt; T &lt; 1, they become more extreme.</p>
+<p>Positive scalar temperature scaling preserves ranking while changing confidence.</p>
+<pre><code>z=logit(p_over[test_idx])
+for T in [.5,1,1.5,2,3]:
+    pT=sigmoid(z/T)
+    print(f&quot;T={T:&lt;3} Brier={brier(y[test_idx],pT):.5f} LogLoss={logloss(y[test_idx],pT):.5f}&quot;)
+</code></pre>
+<p>In multiclass neural networks, temperature scaling is commonly applied to logits before softmax. A single temperature is simple but cannot repair every form of miscalibration.</p>
+<h2>22. Isotonic Calibration</h2>
+<p>Isotonic calibration learns a flexible non-decreasing mapping:</p>
+<h3>s₁ ≤ s₂ ⇒ g(s₁) ≤ g(s₂)</h3>
+<p>It can represent nonlinear calibration relationships but may overfit when calibration data are limited.</p>
+<h3>Flexibility ↔ Variance</h3>
+<h2>23. Train, Calibrate, Test</h2>
+<p>A defensible workflow is:</p>
+<h3>Training Data → Fit Model</h3>
+<h3>Calibration Data → Fit Calibration Mapping</h3>
+<h3>Test Data → Evaluate Final System</h3>
+<p>Repeatedly tuning against the test set destroys its role as untouched final evidence.</p>
+<h2>24. Calibration Has Sampling Uncertainty</h2>
+<p>For a bin with nₘ independent Bernoulli outcomes and observed rate q̂ₘ:</p>
+<h3>SE(q̂ₘ) ≈ √[q̂ₘ(1 − q̂ₘ) / nₘ]</h3>
+<p>A calibration point based on 20 cases is weaker evidence than one based on 20,000 cases.</p>
+<pre><code>mp,obs,count=reliability(y,p_over,12)
+for pred,rate,n_bin in zip(mp,obs,count):
+    se=np.sqrt(rate*(1-rate)/n_bin)
+    print(f&quot;mean p={pred:.3f}, observed={rate:.3f}, n={n_bin:4d}, approx SE={se:.4f}&quot;)
+</code></pre>
+<h2>25. Rare Events and Sparse Probability Regions</h2>
+<p>In rare-event systems, the high-probability region may contain very few observations.</p>
+<p>Large total sample size does not guarantee strong calibration evidence in the region where important decisions occur.</p>
+<h3>Global Sample Size ≠ Local Evidence Strength</h3>
+<h2>26. Global and Local Calibration</h2>
+<p>A model can appear globally calibrated while failing within a subgroup, time period, probability region or deployment context.</p>
+<h3>Global Calibration ≠ Local Calibration</h3>
+<p>Validation may need calibration evidence by:</p>
+<p>- probability region</p>
+<p>- subgroup</p>
+<p>- geography</p>
+<p>- time</p>
+<p>- model version</p>
+<p>- use case</p>
+<p>- operating threshold</p>
+<h2>27. Calibration Drift</h2>
+<p>At deployment time t:</p>
+<h3>Calibrationₜ(p) = Pₜ(Y=1 | p̂=p)</h3>
+<p>Environmental change can produce:</p>
+<h3>Calibrationₜ₀(p) ≠ Calibrationₜ₁(p)</h3>
+<p>Calibration is therefore monitorable evidence, not a permanent certificate.</p>
+<h2>28. Calibration and Selective Prediction</h2>
+<p>Suppose automation acts only when probability exceeds a confidence requirement and otherwise abstains.</p>
+<p>If confidence is miscalibrated, the abstention rule itself can be unreliable.</p>
+<h3>Calibration → Threshold Meaning → Decision Reliability</h3>
+<h2>29. What Calibration Does Not Establish</h2>
+<p>A calibrated model is not automatically:</p>
+<p>- sufficiently accurate</p>
+<p>- discriminative</p>
+<p>- robust</p>
+<p>- safe</p>
+<p>- stable under shift</p>
+<p>- causally correct</p>
+<p>- appropriate for intended use</p>
+<h3>Calibration ≠ Complete Validation</h3>
+<p>It is one dimension of model evidence.</p>
+<h2>30. OpenVals Perspective</h2>
+<p>A serious probabilistic validation platform should preserve:</p>
+<p>- raw probability outputs</p>
+<p>- calibration and test datasets</p>
+<p>- prevalence</p>
+<p>- reliability curves</p>
+<p>- bin definitions and counts</p>
+<p>- Brier score</p>
+<p>- log loss</p>
+<p>- ECE and MCE</p>
+<p>- calibration-in-the-large</p>
+<p>- calibration slope/intercept where appropriate</p>
+<p>- recalibration method</p>
+<p>- before/after calibration evidence</p>
+<p>- subgroup calibration</p>
+<p>- temporal calibration drift</p>
+<p>- uncertainty around calibration estimates</p>
+<p>The validation question is not simply:</p>
+<blockquote>How confident is the model?</blockquote>
+<p>It is:</p>
+<blockquote>Does the model&#x27;s confidence deserve to be interpreted as probability?</blockquote>
+<h2>31. Scientific Validation Chain</h2>
+<h3>Score → Probability Claim → Calibration Test → Proper Scoring Rule → Uncertainty → Recalibration → Monitoring → Evidence</h3>
+<h2>32. Mathematical Summary</h2>
+<h3>P(Y=1 | p̂=p) = p</h3>
+<h3>Brier = (1/n) Σ(p̂ᵢ − yᵢ)²</h3>
+<h3>E[(p−Y)²] = (p−q)² + q(1−q)</h3>
+<h3>Brier = Reliability − Resolution + Uncertainty</h3>
+<h3>LogLoss = −(1/n) Σ[yᵢln(p̂ᵢ) + (1−yᵢ)ln(1−p̂ᵢ)]</h3>
+<h3>ECE = Σₘ (|Bₘ|/n)|Observed(Bₘ)−Confidence(Bₘ)|</h3>
+<h3>MCE = maxₘ|Observed(Bₘ)−Confidence(Bₘ)|</h3>
+<h3>logit[P(Y=1)] = α + βlogit(p̂)</h3>
+<h3>p̃ = sigmoid(a logit(p̂) + b)</h3>
+<h3>p̃ = sigmoid(z/T)</h3>
+<h3>SE(q̂ₘ) ≈ √[q̂ₘ(1−q̂ₘ)/nₘ]</h3>
+<h2>33. Central Conclusion</h2>
+<h3>Model Confidence ≠ Probability Reliability</h3>
+<blockquote>Confidence is a claim. Calibration tests that claim.</blockquote>
+<p>A model can rank cases correctly and still assign misleading probabilities.</p>
+<p>A model can be accurate and still be overconfident.</p>
+<p>A probability scale can be calibrated today and fail after distribution shift tomorrow.</p>
+<p>Calibration transforms “the model says 90%” into a scientifically testable statement.</p>
+<p>The goal is not to make confidence look impressive. The goal is to determine whether confidence corresponds to empirical reality.</p>
+<h3>Next Episode</h3>
+<p>Episode 10 — Robustness and Stress Testing: What Happens When the World Changes?</p>
+<p>Episode 10 can move into perturbations, noise, missingness, covariate shift, subgroup stress tests, adversarial sensitivity, worst-case performance, robustness curves, degradation rates, and the distinction between average performance and resilient performance.</p>
+</body></html>

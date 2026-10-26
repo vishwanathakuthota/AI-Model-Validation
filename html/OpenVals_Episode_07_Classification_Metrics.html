@@ -1,0 +1,386 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Episode 07 — Classification Metrics</title>
+<meta name="description" content="AI Model Validation Episode 07: confusion matrix, accuracy, precision, recall, specificity, F1, balanced accuracy, ROC, precision-recall, thresholds, prevalence and uncertainty."><meta name="author" content="Vishwanath Akuthota">
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;max-width:980px;margin:42px auto;padding:0 26px;line-height:1.7;color:#202124}h1{font-size:2.3rem}h2{margin-top:2.5rem}h3{font-family:Georgia,serif;text-align:center;font-size:1.3rem;margin:24px 0}pre{background:#f6f8fa;padding:17px;border-radius:8px;overflow:auto}blockquote{border-left:4px solid #777;padding:8px 18px;background:#fafafa}</style></head><body>
+<h1>AI Model Validation: From Mathematics to Trust</h1>
+<h2>Episode 07 — Classification Metrics: Why Accuracy Can Be Completely Misleading</h2>
+<p>Author: Vishwanath Akuthota</p>
+<p>Founder of DrPinnacle, OpenVals and The Foundry&#x27;s</p>
+<p>A classifier can be 95% accurate and still fail at the one task that matters.</p>
+<blockquote>There is no meaningful metric without a meaningful question.</blockquote>
+<p>This episode derives binary classification evaluation from first principles: confusion matrices, prevalence, accuracy, precision, recall, specificity, FPR, FNR, F1, balanced accuracy, thresholds, ROC, precision–recall behaviour, cost-sensitive decisions, uncertainty and subgroup evidence.</p>
+<h2>1. Classification as a Decision</h2>
+<p>Actual class:</p>
+<h3>Y ∈ {0, 1}</h3>
+<p>Predicted class:</p>
+<h3>Ŷ ∈ {0, 1}</h3>
+<p>A score-producing classifier may first output:</p>
+<h3>s(x) ∈ [0, 1]</h3>
+<p>A threshold τ creates the decision:</p>
+<h3>Ŷ = 1 if s(x) ≥ τ, otherwise 0</h3>
+<p>The threshold is part of the deployed decision system.</p>
+<pre><code>import numpy as np
+import matplotlib.pyplot as plt
+import platform, sys
+print(&quot;Python :&quot;,sys.version.split()[0])
+print(&quot;System :&quot;,platform.system(),platform.release())
+print(&quot;Machine:&quot;,platform.machine())
+print(&quot;NumPy  :&quot;,np.__version__)
+</code></pre>
+<h2>2. The Confusion Matrix</h2>
+<p>Every binary decision has four possibilities:</p>
+<p>True Positive (TP): actual positive, predicted positive</p>
+<p>False Negative (FN): actual positive, predicted negative</p>
+<p>False Positive (FP): actual negative, predicted positive</p>
+<p>True Negative (TN): actual negative, predicted negative</p>
+<p>Nearly every common binary-classification metric is a different mathematical summary of these four quantities.</p>
+<h2>3. The 95% Accuracy Paradox</h2>
+<p>Consider 1,000 cases:</p>
+<p>- 950 negative</p>
+<p>- 50 positive</p>
+<p>A classifier predicts negative for every case.</p>
+<h3>TP = 0</h3>
+<h3>FN = 50</h3>
+<h3>FP = 0</h3>
+<h3>TN = 950</h3>
+<p>Accuracy becomes:</p>
+<h3>Accuracy = (TP + TN) / (TP + TN + FP + FN)</h3>
+<h3>Accuracy = 950 / 1000 = 95%</h3>
+<p>Yet the classifier detects zero positives.</p>
+<pre><code>TP,FN,FP,TN=0,50,0,950
+N=TP+FN+FP+TN
+print(&quot;Accuracy:&quot;,(TP+TN)/N)
+print(&quot;Detected positives:&quot;,TP,&quot;of&quot;,TP+FN)
+</code></pre>
+<blockquote>High accuracy can coexist with complete failure on the minority class.</blockquote>
+<h2>4. Prevalence</h2>
+<p>Positive-class prevalence is:</p>
+<h3>Prevalence = (TP + FN) / N</h3>
+<p>For our example:</p>
+<h3>Prevalence = 50 / 1000 = 5%</h3>
+<p>A majority-only classifier can achieve:</p>
+<h3>Accuracymajority = max(π₀, π₁)</h3>
+<p>Here that is 95%. Class imbalance can therefore make raw accuracy deceptively impressive.</p>
+<h2>5. Recall — Sensitivity — True Positive Rate</h2>
+<p>Recall measures the proportion of actual positives detected:</p>
+<h3>Recall = TP / (TP + FN)</h3>
+<p>For the always-negative classifier:</p>
+<h3>Recall = 0 / 50 = 0%</h3>
+<p>So:</p>
+<h3>Accuracy = 95%</h3>
+<h3>Recall = 0%</h3>
+<p>There is no contradiction. The metrics answer different questions.</p>
+<h2>6. Specificity — True Negative Rate</h2>
+<p>Specificity measures correctly identified negatives:</p>
+<h3>Specificity = TN / (TN + FP)</h3>
+<p>For the same classifier:</p>
+<h3>Specificity = 950 / 950 = 100%</h3>
+<h2>7. False Positive and False Negative Rates</h2>
+<h3>FPR = FP / (FP + TN)</h3>
+<h3>FPR = 1 − Specificity</h3>
+<p>and:</p>
+<h3>FNR = FN / (FN + TP)</h3>
+<h3>FNR = 1 − Recall</h3>
+<p>The always-negative classifier has FNR = 100%.</p>
+<h2>8. Precision — Positive Predictive Value</h2>
+<p>Precision asks: of all positive predictions, how many were actually positive?</p>
+<h3>Precision = TP / (TP + FP)</h3>
+<p>If TP + FP = 0, the ordinary formula has a zero denominator.</p>
+<p>Precision is then mathematically undefined unless a reporting convention is explicitly adopted.</p>
+<pre><code>def metrics(tp,fn,fp,tn):
+    n=tp+fn+fp+tn
+    accuracy=(tp+tn)/n if n else np.nan
+    precision=tp/(tp+fp) if tp+fp else np.nan
+    recall=tp/(tp+fn) if tp+fn else np.nan
+    specificity=tn/(tn+fp) if tn+fp else np.nan
+    fpr=fp/(fp+tn) if fp+tn else np.nan
+    fnr=fn/(fn+tp) if fn+tp else np.nan
+    return accuracy,precision,recall,specificity,fpr,fnr
+
+names=[&quot;Accuracy&quot;,&quot;Precision&quot;,&quot;Recall&quot;,&quot;Specificity&quot;,&quot;FPR&quot;,&quot;FNR&quot;]
+for name,value in zip(names,metrics(0,50,0,950)):
+    print(f&quot;{name:&lt;12}: {value}&quot;)
+</code></pre>
+<h2>9. F1 Score</h2>
+<p>F1 is the harmonic mean of precision P and recall R:</p>
+<h3>F1 = 2PR / (P + R)</h3>
+<p>Equivalently:</p>
+<h3>F1 = 2TP / (2TP + FP + FN)</h3>
+<p>when the denominator is nonzero.</p>
+<p>F1 does not explicitly include TN.</p>
+<pre><code>pairs=[(.95,.95),(.95,.50),(.95,.10),(.60,.60)]
+for p,r in pairs:
+    f1=2*p*r/(p+r)
+    arithmetic=(p+r)/2
+    print(f&quot;P={p:.2f} R={r:.2f} arithmetic={arithmetic:.3f} F1={f1:.3f}&quot;)
+</code></pre>
+<p>The harmonic mean is strongly influenced by the smaller value. High precision cannot completely compensate for very poor recall, or vice versa.</p>
+<h2>10. Balanced Accuracy</h2>
+<h3>Balanced Accuracy = (Sensitivity + Specificity) / 2</h3>
+<p>For the always-negative classifier:</p>
+<h3>Balanced Accuracy = (0 + 1) / 2 = 50%</h3>
+<p>Compare:</p>
+<h3>Raw Accuracy = 95%</h3>
+<h3>Balanced Accuracy = 50%</h3>
+<p>Balanced accuracy exposes what class imbalance hid.</p>
+<h2>11. Same Accuracy, Different Behaviour</h2>
+<p>Balanced dataset: 500 positives and 500 negatives.</p>
+<p>Model A: TP=450, FN=50, FP=50, TN=450</p>
+<p>Model B: TP=400, FN=100, FP=0, TN=500</p>
+<p>Both have 90% accuracy.</p>
+<pre><code>models={&quot;Model A&quot;:(450,50,50,450),&quot;Model B&quot;:(400,100,0,500)}
+for name,(tp,fn,fp,tn) in models.items():
+    vals=metrics(tp,fn,fp,tn)
+    print(&quot;\n&quot;+name)
+    for metric,value in zip(names,vals):
+        print(f&quot;{metric:&lt;12}: {value:.4f}&quot;)
+</code></pre>
+<h3>AccuracyA = AccuracyB does not imply BehaviourA = BehaviourB</h3>
+<p>Model B eliminates false positives but doubles the number of missed positives.</p>
+<h2>12. Metrics as Conditional Probabilities</h2>
+<h3>Recall = P(Ŷ = 1 | Y = 1)</h3>
+<h3>Specificity = P(Ŷ = 0 | Y = 0)</h3>
+<h3>Precision = P(Y = 1 | Ŷ = 1)</h3>
+<p>They condition on different events. This is why precision and recall cannot be treated as interchangeable.</p>
+<h2>13. Base Rates and Bayes&#x27; Rule</h2>
+<p>Precision depends on prevalence:</p>
+<h3>Precision = (Sensitivity × Prevalence) /</h3>
+<h3>[(Sensitivity × Prevalence) + FPR × (1 − Prevalence)]</h3>
+<p>Even a classifier with strong sensitivity and specificity can have modest precision when the event is rare.</p>
+<pre><code>sensitivity=.95
+specificity=.95
+fpr=1-specificity
+
+prevalences=np.logspace(-4,-.05,200)
+precision=(sensitivity*prevalences)/(sensitivity*prevalences+fpr*(1-prevalences))
+
+plt.figure(figsize=(8,5))
+plt.semilogx(prevalences,precision)
+plt.xlabel(&quot;Positive prevalence&quot;); plt.ylabel(&quot;Precision&quot;)
+plt.title(&quot;Precision Depends on the Base Rate&quot;)
+plt.grid(alpha=.25); plt.show()
+
+for prev in [.50,.10,.01,.001]:
+    ppv=(sensitivity*prev)/(sensitivity*prev+fpr*(1-prev))
+    print(f&quot;Prevalence={prev:.3%} -&gt; Precision={ppv:.3%}&quot;)
+</code></pre>
+<p>This matters in fraud detection, cybersecurity alerts, anomaly detection, screening and other rare-event systems.</p>
+<h2>14. Thresholds Change the Confusion Matrix</h2>
+<p>For a score p̂:</p>
+<h3>Ŷτ = 1[p̂ ≥ τ]</h3>
+<p>Therefore:</p>
+<h3>Confusion Matrix = CM(τ)</h3>
+<p>and classification metrics become threshold-dependent.</p>
+<pre><code>rng=np.random.default_rng(2026)
+n_pos,n_neg=400,1600
+pos=np.clip(rng.normal(.70,.18,n_pos),0,1)
+neg=np.clip(rng.normal(.30,.18,n_neg),0,1)
+scores=np.concatenate([pos,neg])
+actual=np.concatenate([np.ones(n_pos,dtype=int),np.zeros(n_neg,dtype=int)])
+
+def confusion(y,s,t):
+    pred=(s&gt;=t).astype(int)
+    tp=np.sum((y==1)&amp;(pred==1))
+    fn=np.sum((y==1)&amp;(pred==0))
+    fp=np.sum((y==0)&amp;(pred==1))
+    tn=np.sum((y==0)&amp;(pred==0))
+    return tp,fn,fp,tn
+
+for t in [.2,.4,.5,.6,.8]:
+    tp,fn,fp,tn=confusion(actual,scores,t)
+    a,p,r,sp,_,_=metrics(tp,fn,fp,tn)
+    print(f&quot;t={t:.1f} TP={tp:3} FN={fn:3} FP={fp:3} TN={tn:4} precision={p:.3f} recall={r:.3f}&quot;)
+</code></pre>
+<p>A threshold is not merely a technical default. It determines how errors are exchanged.</p>
+<h2>15. Precision–Recall Trade-Off</h2>
+<pre><code>thresholds=np.linspace(0,1,201)
+P=[]; R=[]; ACC=[]; F1=[]
+for t in thresholds:
+    tp,fn,fp,tn=confusion(actual,scores,t)
+    a,p,r,sp,fpr,fnr=metrics(tp,fn,fp,tn)
+    P.append(p); R.append(r); ACC.append(a)
+    F1.append(2*p*r/(p+r) if np.isfinite(p) and p+r&gt;0 else np.nan)
+
+plt.figure(figsize=(8,5))
+plt.plot(thresholds,P,label=&quot;Precision&quot;)
+plt.plot(thresholds,R,label=&quot;Recall&quot;)
+plt.xlabel(&quot;Threshold&quot;); plt.ylabel(&quot;Metric&quot;)
+plt.title(&quot;Threshold Changes Precision and Recall&quot;)
+plt.legend(); plt.grid(alpha=.25); plt.show()
+</code></pre>
+<p>Increasing the threshold often increases precision and reduces recall, although exact behaviour depends on the score distribution.</p>
+<h2>16. ROC Space</h2>
+<p>At each threshold:</p>
+<h3>TPR = Recall = TP / (TP + FN)</h3>
+<h3>FPR = FP / (FP + TN)</h3>
+<p>The ROC curve plots TPR against FPR across thresholds.</p>
+<pre><code>TPR=[]; FPR=[]
+for t in thresholds:
+    tp,fn,fp,tn=confusion(actual,scores,t)
+    TPR.append(tp/(tp+fn))
+    FPR.append(fp/(fp+tn))
+
+plt.figure(figsize=(7,6))
+plt.plot(FPR,TPR,label=&quot;Classifier ROC&quot;)
+plt.plot([0,1],[0,1],linestyle=&quot;--&quot;,label=&quot;Random-ranking reference&quot;)
+plt.xlabel(&quot;False Positive Rate&quot;); plt.ylabel(&quot;True Positive Rate&quot;)
+plt.title(&quot;ROC Curve&quot;)
+plt.legend(); plt.grid(alpha=.25); plt.show()
+</code></pre>
+<h2>17. ROC AUC</h2>
+<p>A useful interpretation of AUC, with appropriate treatment of ties, is:</p>
+<h3>AUC ≈ P(scorepositive &gt; scorenegative)</h3>
+<p>AUC summarizes ranking behaviour across thresholds. It does not select a deployment threshold or encode application-specific error costs.</p>
+<pre><code>comparisons=(pos[:,None]&gt;neg[None,:]).mean()
+ties=(pos[:,None]==neg[None,:]).mean()
+auc=comparisons+.5*ties
+print(&quot;Empirical ROC AUC:&quot;,auc)
+</code></pre>
+<h2>18. Precision–Recall Curve</h2>
+<p>For rare positive events, precision–recall behaviour is often especially informative because it focuses directly on positive detection and positive predictions.</p>
+<p>The precision baseline of an uninformative ranking is related to prevalence.</p>
+<pre><code>valid=np.isfinite(P)
+plt.figure(figsize=(7,6))
+plt.plot(np.array(R)[valid],np.array(P)[valid])
+plt.axhline(actual.mean(),linestyle=&quot;--&quot;,label=&quot;Prevalence reference&quot;)
+plt.xlabel(&quot;Recall&quot;); plt.ylabel(&quot;Precision&quot;)
+plt.title(&quot;Precision–Recall Curve&quot;)
+plt.legend(); plt.grid(alpha=.25); plt.show()
+</code></pre>
+<h2>19. Different Metrics Prefer Different Thresholds</h2>
+<pre><code>plt.figure(figsize=(8,5))
+plt.plot(thresholds,ACC,label=&quot;Accuracy&quot;)
+plt.plot(thresholds,F1,label=&quot;F1&quot;)
+plt.xlabel(&quot;Threshold&quot;); plt.ylabel(&quot;Metric&quot;)
+plt.title(&quot;Metric Choice Changes the Preferred Threshold&quot;)
+plt.legend(); plt.grid(alpha=.25); plt.show()
+
+print(&quot;Observed accuracy-maximizing threshold:&quot;,thresholds[np.nanargmax(ACC)])
+print(&quot;Observed F1-maximizing threshold      :&quot;,thresholds[np.nanargmax(F1)])
+</code></pre>
+<h3>Optimal Threshold is conditional on the Validation Objective</h3>
+<p>There is no context-free best threshold.</p>
+<h2>20. Cost-Sensitive Classification</h2>
+<p>Let cFP be the cost of a false positive and cFN the cost of a false negative.</p>
+<h3>C = cFP × FP + cFN × FN</h3>
+<p>Different consequences can imply different preferred thresholds.</p>
+<pre><code>scenarios=[(&quot;Equal cost&quot;,1,1),(&quot;FN costs 10x&quot;,1,10),(&quot;FP costs 10x&quot;,10,1)]
+for label,c_fp,c_fn in scenarios:
+    costs=[]
+    for t in thresholds:
+        tp,fn,fp,tn=confusion(actual,scores,t)
+        costs.append(c_fp*fp+c_fn*fn)
+    best=thresholds[np.argmin(costs)]
+    print(f&quot;{label:&lt;14}: threshold={best:.3f}, observed cost={min(costs)}&quot;)
+</code></pre>
+<p>Costs must come from application context. Mathematics can optimize a defined objective; it cannot decide what society or an organization should value.</p>
+<h2>21. Accuracy Has Sampling Uncertainty</h2>
+<p>If correctness Xi is Bernoulli with probability p:</p>
+<h3>p̂ = (1/n) Σᵢ₌₁ⁿ Xᵢ</h3>
+<h3>E[p̂] = p</h3>
+<h3>Var(p̂) = p(1 − p) / n</h3>
+<h3>SE(p̂) = √[p(1 − p) / n]</h3>
+<p>The reported accuracy is itself an estimate.</p>
+<h2>22. Same Accuracy, Different Evidence</h2>
+<h3>9 / 10 = 90%</h3>
+<h3>900,000 / 1,000,000 = 90%</h3>
+<p>The point estimate is identical. The uncertainty is not.</p>
+<pre><code>for n,p in [(10,.9),(1_000_000,.9)]:
+    se=np.sqrt(p*(1-p)/n)
+    print(f&quot;n={n:&gt;9,} accuracy={p:.1%} estimated SE={se:.7f}&quot;)
+</code></pre>
+<h2>23. Wilson Score Interval</h2>
+<p>For observed proportion p̂, n observations and normal critical value z:</p>
+<h3>Center = [p̂ + z²/(2n)] / [1 + z²/n]</h3>
+<h3>Half-width = [z/(1 + z²/n)] √[p̂(1−p̂)/n + z²/(4n²)]</h3>
+<h3>Interval = [Center − Half-width, Center + Half-width]</h3>
+<p>Wilson intervals generally behave better than the simple Wald interval for small n or extreme proportions.</p>
+<pre><code>def wilson(k,n,z=1.96):
+    p=k/n
+    den=1+z*z/n
+    center=(p+z*z/(2*n))/den
+    half=(z/den)*np.sqrt(p*(1-p)/n+z*z/(4*n*n))
+    return center-half,center+half
+
+for k,n in [(9,10),(90,100),(900,1000),(900000,1000000)]:
+    lo,hi=wilson(k,n)
+    print(f&quot;{k}/{n}: estimate={k/n:.3%}, Wilson≈[{lo:.3%},{hi:.3%}]&quot;)
+</code></pre>
+<h2>24. Uncertainty Applies to Every Metric</h2>
+<p>Precision, recall, specificity, F1, balanced accuracy and AUC are also finite-sample estimates.</p>
+<p>Appropriate uncertainty analysis depends on the metric, evaluation design, dependence structure and sampling assumptions.</p>
+<h3>Metric Value ≠ Exact Population Truth</h3>
+<h2>25. Subgroup Performance</h2>
+<p>Aggregate performance can hide subgroup failure.</p>
+<h3>Aggregate Performance ≠ Uniform Performance</h3>
+<pre><code>groups={&quot;Group A&quot;:(470,30,40,460),&quot;Group B&quot;:(60,40,20,80)}
+for group,(tp,fn,fp,tn) in groups.items():
+    a,p,r,s,_,_=metrics(tp,fn,fp,tn)
+    print(group,&quot;accuracy=&quot;,round(a,3),&quot;recall=&quot;,round(r,3),&quot;specificity=&quot;,round(s,3))
+</code></pre>
+<p>Subgroup analysis should be motivated by intended use, population structure, risk and governance requirements—not arbitrary slicing until an interesting result appears.</p>
+<h2>26. Distribution Shift Changes Metric Meaning</h2>
+<p>Precision is particularly sensitive to prevalence.</p>
+<p>If deployment prevalence differs from evaluation prevalence, predictive values can change even when sensitivity and specificity remain similar.</p>
+<h3>Evaluation Distribution ≠ Deployment Distribution</h3>
+<p>can imply:</p>
+<h3>Evaluation Metric ≠ Deployment Metric</h3>
+<h2>27. Metrics Do Not Replace Failure Analysis</h2>
+<p>Excellent aggregate metrics can coexist with catastrophic failures in narrow regions.</p>
+<p>Validation may therefore require:</p>
+<p>- numerical metrics</p>
+<p>- error analysis</p>
+<p>- subgroup analysis</p>
+<p>- edge-case testing</p>
+<p>- stress testing</p>
+<p>- distribution-shift analysis</p>
+<p>- application-specific risk assessment</p>
+<h2>28. Selecting the Metric</h2>
+<p>If false negatives are critical, recall may be central.</p>
+<p>If false positives are expensive, precision or specificity may matter.</p>
+<p>With class imbalance, balanced accuracy or class-specific metrics may be more informative than raw accuracy.</p>
+<p>If ranking across thresholds matters, ROC or precision–recall analysis may help.</p>
+<p>No metric becomes scientifically correct merely because it is popular.</p>
+<h2>29. A Defensible Classification Claim</h2>
+<p>A performance claim should specify:</p>
+<p>- positive-class definition</p>
+<p>- metric definition</p>
+<p>- sample size</p>
+<p>- prevalence</p>
+<p>- sampling process</p>
+<p>- decision threshold</p>
+<p>- confusion matrix</p>
+<p>- uncertainty</p>
+<p>- subgroup behaviour where relevant</p>
+<p>- consequences of FP and FN</p>
+<p>- deployment conditions</p>
+<p>This transforms a number into interpretable evidence.</p>
+<h2>30. OpenVals Perspective</h2>
+<p>A serious validation platform should not store only:</p>
+<h3>Accuracy = 95%</h3>
+<p>It should preserve the evidence behind that number: TP, FN, FP, TN, prevalence, threshold, precision, recall, specificity, FPR, FNR, F1, balanced accuracy, ROC/PR behaviour, uncertainty, subgroup metrics, cost-sensitive analysis, evaluation distribution and metric drift.</p>
+<p>The objective is not to maximize the number of metrics.</p>
+<p>The objective is to determine which evidence is relevant to the trust decision.</p>
+<h2>31. Scientific Validation Chain</h2>
+<h3>Scores → Threshold → Confusion Matrix → Metrics → Uncertainty → Consequences → Evidence → Trust Decision</h3>
+<h2>32. Mathematical Summary</h2>
+<h3>Accuracy = (TP + TN) / N</h3>
+<h3>Precision = TP / (TP + FP)</h3>
+<h3>Recall = TP / (TP + FN)</h3>
+<h3>Specificity = TN / (TN + FP)</h3>
+<h3>FPR = FP / (FP + TN) = 1 − Specificity</h3>
+<h3>FNR = FN / (FN + TP) = 1 − Recall</h3>
+<h3>F1 = 2PR / (P + R)</h3>
+<h3>Balanced Accuracy = (Sensitivity + Specificity) / 2</h3>
+<h3>Prevalence = (TP + FN) / N</h3>
+<h3>C = cFP × FP + cFN × FN</h3>
+<h3>Var(p̂) = p(1 − p) / n</h3>
+<h2>33. Central Conclusion</h2>
+<h3>High Accuracy ≠ Reliable Classification</h3>
+<blockquote>There is no meaningful metric without a meaningful question.</blockquote>
+<p>A 95% accuracy score can describe a useful classifier. It can also describe a classifier that detects none of the events we care about.</p>
+<p>The scientific task is not to find the metric that makes the model look best.</p>
+<p>It is to choose measurements that expose whether the model is fit for its intended decision.</p>
+<h3>Next Episode</h3>
+<p>Episode 08 — Thresholds, ROC, Precision–Recall, and the Mathematics of Decision Trade-Offs</p>
+<p>Episode 08 will move deeper into threshold selection, ROC geometry, AUC, precision–recall curves, likelihood ratios, expected cost, decision theory and why a universal “best threshold” does not exist.</p>
+</body></html>
